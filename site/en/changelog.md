@@ -1,5 +1,18 @@
 # Changelog
 
+## v1.3.0 (2026-08-31)
+
+OpenAI's two main 2025 endpoints, covering Agent SDK and offline batch integration tests:
+
+- **Responses API** — `POST /v1/responses` + `GET /v1/responses/{id}` + `POST /v1/responses/{id}/cancel`
+  - `previous_response_id` state chaining (multi-turn conversation)
+  - `background:true` async: returns queued, completes 250ms later; client polling semantics match real vendor
+  - Internal: `ResponseJobHandler` (`ConcurrentHashMap` + single-thread `ScheduledExecutorService`)
+- **Batches API** — `POST /v1/batches` + `GET /v1/batches/{id}` + `POST /v1/batches/{id}/cancel`
+  - State machine `validating → in_progress → finalizing → completed`; cancel transitions to `cancelling`
+  - Output `output_file_id` placeholder `file_batch_result_xxx`
+  - Depends on the Files API (v1.2) for the full upload → batch → result chain
+
 ## v1.2.0 (2026-08-31)
 
 Files API — upload / list / detail / content download / delete, shared between OpenAI and Anthropic through one in-memory store (`file-` vs `file_` prefixes keep namespaces separate):

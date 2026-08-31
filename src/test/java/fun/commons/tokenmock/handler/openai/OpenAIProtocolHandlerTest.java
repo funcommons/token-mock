@@ -50,7 +50,7 @@ class OpenAIProtocolHandlerTest {
         fun.commons.tokenmock.core.PlaceholderResources ph = new fun.commons.tokenmock.core.PlaceholderResources();
         AudioImageHandler audioImage = new AudioImageHandler(ph);
         fun.commons.tokenmock.handler.video.VideoJobHandler video = new fun.commons.tokenmock.handler.video.VideoJobHandler(ph);
-        handler = new OpenAIProtocolHandler(registry, generator, embed, audioImage, video, new InMemoryFileStore());
+        handler = new OpenAIProtocolHandler(registry, generator, embed, audioImage, video, new InMemoryFileStore(), new ResponseJobHandler(), new BatchJobHandler());
     }
 
     @Test
@@ -125,5 +125,40 @@ class OpenAIProtocolHandlerTest {
         Object result = handler.handle(req);
         ResponseEntity<?> re = (ResponseEntity<?>) result;
         assertThat(re.getStatusCode().value()).isEqualTo(401);
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void responses_sync_returns_response_object() {
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("model", "gpt-4o");
+        body.put("input", "hi");
+
+        MockRequest req = new MockRequest(
+                "openai", "Bearer sk-openai-xxx", "/openai/v1/responses", "POST", body);
+        Object resp = handler.handle(req);
+        ResponseEntity<?> re = (ResponseEntity<?>) resp;
+        Map<String, Object> rb = (Map<String, Object>) re.getBody();
+        assertThat(rb.get("object")).isEqualTo("response");
+        assertThat((String) rb.get("id")).startsWith("resp_");
+        assertThat(rb.get("status")).isEqualTo("completed");
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void batches_create_returns_batch_id_in_progress() {
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("input_file_id", "file-abc");
+        body.put("endpoint", "/v1/chat/completions");
+        body.put("completion_window", "24h");
+
+        MockRequest req = new MockRequest(
+                "openai", "Bearer sk-openai-xxx", "/openai/v1/batches", "POST", body);
+        Object resp = handler.handle(req);
+        ResponseEntity<?> re = (ResponseEntity<?>) resp;
+        Map<String, Object> rb = (Map<String, Object>) re.getBody();
+        assertThat(rb.get("object")).isEqualTo("batch");
+        assertThat((String) rb.get("id")).startsWith("batch_");
+        assertThat(rb.get("status")).isEqualTo("in_progress");
     }
 }

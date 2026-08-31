@@ -44,14 +44,7 @@ class AudioImageHandlerTest {
 
         TokenEstimator estimator = new TokenEstimator();
         PlaceholderResources ph = new PlaceholderResources();
-        handler = new OpenAIProtocolHandler(
-                registry,
-                new ResponseGenerator(estimator),
-                new EmbeddingGenerator(),
-                new AudioImageHandler(ph),
-                new VideoJobHandler(ph),
-                new InMemoryFileStore()
-        );
+        handler = new OpenAIProtocolHandler(registry, new ResponseGenerator(estimator), new EmbeddingGenerator(), new AudioImageHandler(ph), new VideoJobHandler(ph), new InMemoryFileStore(), new ResponseJobHandler(), new BatchJobHandler());
     }
 
     @Test

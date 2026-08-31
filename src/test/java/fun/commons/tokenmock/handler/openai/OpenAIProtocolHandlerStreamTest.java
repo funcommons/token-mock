@@ -47,7 +47,7 @@ class OpenAIProtocolHandlerStreamTest {
         PlaceholderResources ph = new PlaceholderResources();
         AudioImageHandler audioImage = new AudioImageHandler(ph);
         VideoJobHandler video = new VideoJobHandler(ph);
-        handler = new OpenAIProtocolHandler(registry, generator, embed, audioImage, video, new InMemoryFileStore());
+        handler = new OpenAIProtocolHandler(registry, generator, embed, audioImage, video, new InMemoryFileStore(), new ResponseJobHandler(), new BatchJobHandler());
     }
 
     @Test

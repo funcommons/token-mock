@@ -1,5 +1,18 @@
 # 更新日志
 
+## v1.3.0 (2026-08-31)
+
+OpenAI 2025 后两个主力端点接入,Agent SDK / 离线批处理集成测试覆盖:
+
+- **Responses API** — `POST /v1/responses` + `GET /v1/responses/{id}` + `POST /v1/responses/{id}/cancel`
+  - `previous_response_id` 状态延续(支持多轮对话链)
+  - `background:true` 异步任务:返回 queued,250ms 后切 completed;客户端轮询语义一致
+  - 内部:`ResponseJobHandler`(`ConcurrentHashMap` + 单线程 `ScheduledExecutorService`)
+- **Batches API** — `POST /v1/batches` + `GET /v1/batches/{id}` + `POST /v1/batches/{id}/cancel`
+  - 状态机 `validating → in_progress → finalizing → completed`,支持 cancel 转 `cancelling`
+  - 输出 `output_file_id` 占位 `file_batch_result_xxx`
+  - 前置依赖 Files API(v1.2 已做),集成测试完整链路上传→批量→查询
+
 ## v1.2.0 (2026-08-31)
 
 Files API — 上传 / 列表 / 详情 / 内容下载 / 删除,OpenAI 与 Anthropic 双协议共用一个内存表(用 `file-` 与 `file_` 前缀做命名空间隔离):

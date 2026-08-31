@@ -31,6 +31,12 @@ import java.util.Map;
  *   GET  /v1/files/{id}
  *   GET  /v1/files/{id}/content      (raw bytes download)
  *   DELETE /v1/files/{id}
+ *   POST /v1/responses               (sync / background:true, returns resp_xxx id)
+ *   GET  /v1/responses/{id}
+ *   POST /v1/responses/{id}/cancel
+ *   POST /v1/batches                 (returns batch_xxx id,status in_progress)
+ *   GET  /v1/batches/{id}
+ *   POST /v1/batches/{id}/cancel
  */
 @Component
 public class OpenAIProtocolHandler implements ProtocolHandler {
@@ -41,18 +47,24 @@ public class OpenAIProtocolHandler implements ProtocolHandler {
     private final AudioImageHandler audioImageHandler;
     private final fun.commons.tokenmock.handler.video.VideoJobHandler videoJobHandler;
     private final InMemoryFileStore fileStore;
+    private final ResponseJobHandler responseJobHandler;
+    private final BatchJobHandler batchJobHandler;
 
     public OpenAIProtocolHandler(VendorRegistry registry, ResponseGenerator generator,
                                   EmbeddingGenerator embeddingGenerator,
                                   AudioImageHandler audioImageHandler,
                                   fun.commons.tokenmock.handler.video.VideoJobHandler videoJobHandler,
-                                  InMemoryFileStore fileStore) {
+                                  InMemoryFileStore fileStore,
+                                  ResponseJobHandler responseJobHandler,
+                                  BatchJobHandler batchJobHandler) {
         this.registry = registry;
         this.generator = generator;
         this.embeddingGenerator = embeddingGenerator;
         this.audioImageHandler = audioImageHandler;
         this.videoJobHandler = videoJobHandler;
         this.fileStore = fileStore;
+        this.responseJobHandler = responseJobHandler;
+        this.batchJobHandler = batchJobHandler;
     }
 
     @Override
@@ -71,6 +83,12 @@ public class OpenAIProtocolHandler implements ProtocolHandler {
         String path = normalizePath(request.getPath());
         if (path.startsWith("/v1/videos")) {
             return handleVideo(vendor, path, request);
+        }
+        if (path.startsWith("/v1/responses")) {
+            return handleResponses(path, request);
+        }
+        if (path.startsWith("/v1/batches")) {
+            return handleBatches(path, request);
         }
         if (path.startsWith("/v1/files")) {
             return handleFiles(path, request);
@@ -161,6 +179,106 @@ public class OpenAIProtocolHandler implements ProtocolHandler {
                 "filename", entry.filename(),
                 "purpose", entry.purpose()
         ));
+    }
+
+    /**
+     * OpenAI Responses API.
+     * <p>POST /v1/responses 创建(支持 {@code previous_response_id} 状态延续 +
+     * {@code background:true} 异步任务);GET /v1/responses/{id} 查状态;
+     * POST /v1/responses/{id}/cancel 取消. {@code input} 字段支持 {@code message}
+     * 形态数组或字符串,我们只取最后一条 user 文本作为回显种子.
+     */
+    private Object handleResponses(String path, MockRequest request) {
+        if (path.equals("/v1/responses")) {
+            Map<String, Object> body = asMap(request.getBody());
+            String model = stringOr(body.get("model"), firstChatModel(registry.require(request.getVendorSlug())));
+            String userText = extractInputUserText(body);
+            String previousId = body.get("previous_response_id") instanceof String s ? s : null;
+            boolean background = Boolean.TRUE.equals(body.get("background"));
+            var job = responseJobHandler.create(request.getVendorSlug(), model, userText, previousId, background);
+            return ResponseEntity.ok(responseJobHandler.toApiResponse(job, background));
+        }
+        String[] parts = path.split("/");
+        if (parts.length == 4) {
+            String id = parts[3];
+            var maybe = responseJobHandler.get(id);
+            if (maybe.isEmpty()) {
+                return ResponseEntity.status(404).body(errorBody("not_found", "response not found: " + id));
+            }
+            return ResponseEntity.ok(responseJobHandler.toApiResponse(maybe.get(), false));
+        }
+        if (parts.length == 5 && "cancel".equals(parts[4])) {
+            String id = parts[3];
+            boolean ok = responseJobHandler.cancel(id);
+            if (!ok) {
+                return ResponseEntity.status(404).body(errorBody("not_found",
+                        "no cancellable response with id: " + id));
+            }
+            return ResponseEntity.ok(Map.of("id", id, "object", "response", "status", "cancelled"));
+        }
+        throw new IllegalArgumentException("unknown responses path: " + path);
+    }
+
+    @SuppressWarnings("unchecked")
+    private String extractInputUserText(Map<String, Object> body) {
+        Object input = body.get("input");
+        if (input instanceof String s) return s;
+        if (input instanceof List<?> list) {
+            for (int i = list.size() - 1; i >= 0; i--) {
+                Object item = list.get(i);
+                if (item instanceof Map) {
+                    Map<String, Object> m = (Map<String, Object>) item;
+                    if (!"user".equals(m.get("role"))) continue;
+                    Object content = m.get("content");
+                    if (content instanceof List<?> parts) {
+                        for (Object p : parts) {
+                            if (p instanceof Map && ((Map<?, ?>) p).containsKey("text")) {
+                                return String.valueOf(((Map<?, ?>) p).get("text"));
+                            }
+                        }
+                    } else if (content != null) {
+                        return String.valueOf(content);
+                    }
+                }
+            }
+        }
+        return "(empty)";
+    }
+
+    /**
+     * Batches API: POST /v1/batches + GET + POST cancel/{id.
+     * <p>提交 jsonl input file id + 选 endpoint,返回 batch id 与进度状态.
+     */
+    private Object handleBatches(String path, MockRequest request) {
+        if (path.equals("/v1/batches")) {
+            if (!"POST".equals(request.getMethod())) {
+                throw new IllegalArgumentException("unsupported method on /v1/batches: " + request.getMethod());
+            }
+            Map<String, Object> body = asMap(request.getBody());
+            String inputFileId = stringOr(body.get("input_file_id"), "file-missing");
+            String endpoint = stringOr(body.get("endpoint"), "/v1/chat/completions");
+            String completionWindow = stringOr(body.get("completion_window"), "24h");
+            var job = batchJobHandler.create(request.getVendorSlug(), inputFileId, endpoint, completionWindow);
+            return ResponseEntity.ok(batchJobHandler.toApiResponse(job));
+        }
+        String[] parts = path.split("/");
+        if (parts.length == 4) {
+            String id = parts[3];
+            var maybe = batchJobHandler.get(id);
+            if (maybe.isEmpty()) {
+                return ResponseEntity.status(404).body(errorBody("not_found", "batch not found: " + id));
+            }
+            return ResponseEntity.ok(batchJobHandler.toApiResponse(maybe.get()));
+        }
+        if (parts.length == 5 && "cancel".equals(parts[4])) {
+            String id = parts[3];
+            if (!batchJobHandler.cancel(id)) {
+                return ResponseEntity.status(404).body(errorBody("not_found",
+                        "no cancellable batch with id: " + id));
+            }
+            return ResponseEntity.ok(Map.of("id", id, "object", "batch", "status", "cancelling"));
+        }
+        throw new IllegalArgumentException("unknown batches path: " + path);
     }
 
     private Object handleVideo(VendorConfig vendor, String path, MockRequest request) {
