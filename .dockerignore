@@ -1,4 +1,5 @@
 target/
+!target/token-mock.jar
 .idea/
 *.iml
 .DS_Store

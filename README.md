@@ -154,9 +154,9 @@ curl http://localhost:9999/admin/vendors/openai/stats \
 ```bash
 mvn test          # 单元测试
 mvn verify        # 含 JaCoCo 覆盖率检查
-mvn package       # 产出 target/token-mock.jar (Spring Boot fat jar)
+mvn -DskipTests package        # 产出 target/token-mock.jar (Spring Boot fat jar)
 
-docker build -t token-mock .   # 本地构建镜像
+docker build -t token-mock .   # 本地构建镜像(先 package,镜像直接 COPY jar)
 ```
 
 ## License

@@ -1,19 +1,10 @@
-# ---- 构建阶段: Maven + JDK 21 ----
-FROM maven:3.9-eclipse-temurin-21 AS build
-WORKDIR /build
-
-# 先拷 pom 下依赖,利用 Docker 层缓存
-COPY pom.xml .
-RUN mvn -B -q dependency:go-offline
-
-COPY src ./src
-RUN mvn -B -q package -DskipTests
-
-# ---- 运行阶段: JRE 21 ----
+# token-mock 运行时镜像。
+# jar 由构建方提前产出:先 `mvn -DskipTests package`,再 `docker build`。
+# (CI 的 release.yml 即按此顺序构建 amd64/arm64 双架构镜像)
 FROM eclipse-temurin:21-jre
 WORKDIR /app
 
-COPY --from=build /build/target/token-mock.jar app.jar
+COPY target/token-mock.jar app.jar
 
 ENV SERVER_PORT=9999 \
     JAVA_OPTS=""
