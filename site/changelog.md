@@ -1,5 +1,15 @@
 # 更新日志
 
+## v1.2.0 (2026-08-31)
+
+Files API — 上传 / 列表 / 详情 / 内容下载 / 删除,OpenAI 与 Anthropic 双协议共用一个内存表(用 `file-` 与 `file_` 前缀做命名空间隔离):
+
+- OpenAI `POST /v1/files` 等 5 端点 — `file-xxx` id,OpenAI 响应字段(`object/bytes/purpose/created_at` 等)
+- Anthropic `POST /v1/files` 等 5 端点 — `file_xxx` id,Anthropic 响应字段(`type/filename/mime_type/size_bytes/downloadable` 等)
+- 后端:`InMemoryFileStore`(`registry` 包,线程安全,`ConcurrentHashMap`),
+  两个 namespace 同 store 不同前缀 — 测试可断言 namespace 隔离
+- dispatch controller 增加 GET/DELETE 路由分支 + multipart body 抽出支持
+
 ## v1.1.0 (2026-08-31)
 
 新增端点(集成测试覆盖更高频的厂商自带能力):

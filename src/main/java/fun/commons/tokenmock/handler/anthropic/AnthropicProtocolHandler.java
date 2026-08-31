@@ -5,6 +5,7 @@ import fun.commons.tokenmock.core.SseChunker;
 import fun.commons.tokenmock.core.TokenEstimator;
 import fun.commons.tokenmock.handler.MockRequest;
 import fun.commons.tokenmock.handler.ProtocolHandler;
+import fun.commons.tokenmock.registry.InMemoryFileStore;
 import fun.commons.tokenmock.registry.VendorRegistry;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.http.MediaType;
@@ -26,6 +27,11 @@ import java.util.UUID;
  *   POST /v1/messages          (non-stream)
  *   POST /v1/messages?stream=true  (SSE)
  *   POST /v1/messages/count_tokens  (input_tokens 预估算)
+ *   POST /v1/files                   (multipart upload, returns file_xxx id)
+ *   GET  /v1/files
+ *   GET  /v1/files/{id}
+ *   GET  /v1/files/{id}/content
+ *   DELETE /v1/files/{id}
  *   GET  /v1/models
  * <p>
  * Auth: x-api-key header (not Bearer).
@@ -38,11 +44,14 @@ public class AnthropicProtocolHandler implements ProtocolHandler {
     private final VendorRegistry registry;
     private final TokenEstimator estimator;
     private final SseChunker sseChunker;
+    private final InMemoryFileStore fileStore;
 
-    public AnthropicProtocolHandler(VendorRegistry registry, TokenEstimator estimator, SseChunker sseChunker) {
+    public AnthropicProtocolHandler(VendorRegistry registry, TokenEstimator estimator, SseChunker sseChunker,
+                                     InMemoryFileStore fileStore) {
         this.registry = registry;
         this.estimator = estimator;
         this.sseChunker = sseChunker;
+        this.fileStore = fileStore;
     }
 
     @Override
@@ -61,12 +70,94 @@ public class AnthropicProtocolHandler implements ProtocolHandler {
         }
 
         String path = request.getPath().replaceFirst("^/[^/]+", "");
+        if (path.startsWith("/v1/files")) {
+            return handleFiles(path, request);
+        }
         return switch (path) {
             case "/v1/messages" -> handleMessages(request);
             case "/v1/messages/count_tokens" -> handleCountTokens(request);
             case "/v1/models" -> handleListModels(vendor);
             default -> throw new IllegalArgumentException("unknown path: " + path);
         };
+    }
+
+    /**
+     * Anthropic Files API:同 OpenAI 形态但 id 是 {@code file_} 前缀,响应字段不同.
+     * <p>Anthropic 返回字段:{@code {id, type:"file", filename, mime_type, size_bytes,
+     * created_at, downloadable?}}.我们尽量贴齐.
+     */
+    private Object handleFiles(String path, MockRequest request) {
+        if (path.equals("/v1/files")) {
+            return switch (request.getMethod()) {
+                case "POST" -> handleFileUpload(request);
+                case "GET" -> ResponseEntity.ok(Map.of(
+                        "data", fileStore.list(InMemoryFileStore.Namespace.ANTHROPIC).stream()
+                                .map(f -> Map.<String, Object>of(
+                                        "id", f.id(),
+                                        "type", "file",
+                                        "filename", f.filename(),
+                                        "mime_type", f.contentType(),
+                                        "size_bytes", f.size(),
+                                        "created_at", f.createdAt().toString(),
+                                        "downloadable", true
+                                )).toList()
+                ));
+                default -> throw new IllegalArgumentException(
+                        "unsupported method on /v1/files: " + request.getMethod());
+            };
+        }
+        String[] parts = path.split("/");
+        String id = parts.length >= 4 ? parts[3] : "";
+        var maybe = fileStore.findById(id);
+        if (maybe.isEmpty()) {
+            return ResponseEntity.status(404).body(Map.of(
+                    "type", "error", "error", Map.of("type", "not_found_error", "message", "file not found")));
+        }
+        var entry = maybe.get();
+        if (parts.length == 5 && "content".equals(parts[4])) {
+            MediaType ct = entry.contentType() != null
+                    ? MediaType.parseMediaType(entry.contentType())
+                    : MediaType.APPLICATION_OCTET_STREAM;
+            return ResponseEntity.ok().contentType(ct).body(entry.bytes());
+        }
+        if (parts.length == 4) {
+            return switch (request.getMethod()) {
+                case "GET" -> ResponseEntity.ok(Map.<String, Object>of(
+                        "id", entry.id(),
+                        "type", "file",
+                        "filename", entry.filename(),
+                        "mime_type", entry.contentType(),
+                        "size_bytes", entry.size(),
+                        "created_at", entry.createdAt().toString(),
+                        "downloadable", true
+                ));
+                case "DELETE" -> {
+                    fileStore.delete(id);
+                    yield ResponseEntity.ok(Map.of("id", id, "type", "file_deleted"));
+                }
+                default -> throw new IllegalArgumentException(
+                        "unsupported method on /v1/files/{id}: " + request.getMethod());
+            };
+        }
+        throw new IllegalArgumentException("unknown files path: " + path);
+    }
+
+    private Object handleFileUpload(MockRequest request) {
+        Map<String, Object> body = asMap(request.getBody());
+        String filename = stringOr(body.get("__file_name__"), "upload.bin");
+        String contentType = stringOr(body.get("__file_content_type__"), "application/octet-stream");
+        Long size = body.get("__file_size__") instanceof Number n ? n.longValue() : 0L;
+        byte[] placeholder = ("[mock] " + filename + " (" + size + " bytes)").getBytes();
+        var entry = fileStore.save(InMemoryFileStore.Namespace.ANTHROPIC, filename, "file", contentType, placeholder);
+        return ResponseEntity.ok(Map.<String, Object>of(
+                "id", entry.id(),
+                "type", "file",
+                "filename", entry.filename(),
+                "mime_type", entry.contentType(),
+                "size_bytes", entry.size(),
+                "created_at", entry.createdAt().toString(),
+                "downloadable", true
+        ));
     }
 
     /**

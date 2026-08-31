@@ -8,6 +8,7 @@ import fun.commons.tokenmock.core.PlaceholderResources;
 import fun.commons.tokenmock.core.ResponseGenerator;
 import fun.commons.tokenmock.core.TokenEstimator;
 import fun.commons.tokenmock.handler.MockRequest;
+import fun.commons.tokenmock.registry.InMemoryFileStore;
 import fun.commons.tokenmock.handler.video.VideoJobHandler;
 import fun.commons.tokenmock.registry.VendorRegistry;
 import org.junit.jupiter.api.BeforeEach;
@@ -48,7 +49,8 @@ class AudioImageHandlerTest {
                 new ResponseGenerator(estimator),
                 new EmbeddingGenerator(),
                 new AudioImageHandler(ph),
-                new VideoJobHandler(ph)
+                new VideoJobHandler(ph),
+                new InMemoryFileStore()
         );
     }
 

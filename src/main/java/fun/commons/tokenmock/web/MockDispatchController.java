@@ -72,13 +72,30 @@ public class MockDispatchController {
                             @RequestHeader(value = "X-Mock-Admin-Token", required = false) String adminToken,
                             @Valid @RequestBody(required = false) Map<String, Object> body,
                             HttpServletRequest request) {
-        return doDispatch(slug, auth, apiKey, googKey, azureKey, adminToken, body, request);
+        return doDispatch(slug, "POST", auth, apiKey, googKey, azureKey, adminToken, body, request);
     }
 
     /**
-     * Multipart alias of {@link #dispatch} for STT endpoints. Spring would
-     * otherwise reject the request with 415 because the typed {@code Map} body
-     * can't bind multipart payloads — we read parts directly and feed the
+     * GET/DELETE on /{slug}/** — no request body, Spring won't bind a body Map
+     * so we forward {@ null} and let the handler drive the response (typical for
+     * {@code GET /v1/models} and {@code GET /v1/files}, {@code DELETE /v1/files/{id}}).
+     */
+    @RequestMapping(value = "/{slug}/**", method = {RequestMethod.GET, RequestMethod.DELETE})
+    public Object dispatchRead(@PathVariable String slug,
+                                @RequestHeader(value = "Authorization", required = false) String auth,
+                                @RequestHeader(value = "x-api-key", required = false) String apiKey,
+                                @RequestHeader(value = "x-goog-api-key", required = false) String googKey,
+                                @RequestHeader(value = "api-key", required = false) String azureKey,
+                                @RequestHeader(value = "X-Mock-Admin-Token", required = false) String adminToken,
+                                HttpServletRequest request) {
+        return doDispatch(slug, request.getMethod(), auth, apiKey, googKey, azureKey, adminToken,
+                new LinkedHashMap<>(), request);
+    }
+
+    /**
+     * Multipart alias of {@link #dispatch} for STT/Files endpoints. Spring
+     * would otherwise reject the request with 415 because the typed {@code Map}
+     * body can't bind multipart payloads — we read parts directly and feed the
      * handler the same synthetic body the JSON path produces.
      */
     @RequestMapping(value = "/{slug}/**", consumes = "multipart/form-data")
@@ -90,10 +107,10 @@ public class MockDispatchController {
                                      @RequestHeader(value = "X-Mock-Admin-Token", required = false) String adminToken,
                                      HttpServletRequest request) {
         Map<String, Object> body = extractMultipartBody(request);
-        return doDispatch(slug, auth, apiKey, googKey, azureKey, adminToken, body, request);
+        return doDispatch(slug, "POST", auth, apiKey, googKey, azureKey, adminToken, body, request);
     }
 
-    private Object doDispatch(String slug, String auth, String apiKey, String googKey,
+    private Object doDispatch(String slug, String method, String auth, String apiKey, String googKey,
                               String azureKey, String adminToken, Map<String, Object> body,
                               HttpServletRequest request) {
         if ("admin".equals(slug)) {
@@ -148,6 +165,7 @@ public class MockDispatchController {
                 .vendorSlug(slug)
                 .authHeader(effectiveAuth)
                 .path(fullPath)
+                .method(method)
                 .body(body)
                 .build();
         Object result;

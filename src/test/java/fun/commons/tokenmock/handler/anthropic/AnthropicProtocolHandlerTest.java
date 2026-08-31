@@ -6,6 +6,7 @@ import fun.commons.tokenmock.config.VendorConfig;
 import fun.commons.tokenmock.core.SseChunker;
 import fun.commons.tokenmock.core.TokenEstimator;
 import fun.commons.tokenmock.handler.MockRequest;
+import fun.commons.tokenmock.registry.InMemoryFileStore;
 import fun.commons.tokenmock.registry.VendorRegistry;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -38,7 +39,8 @@ class AnthropicProtocolHandlerTest {
         VendorRegistry registry = new VendorRegistry(props);
         registry.init();
 
-        handler = new AnthropicProtocolHandler(registry, new TokenEstimator(), new SseChunker());
+        handler = new AnthropicProtocolHandler(registry, new TokenEstimator(), new SseChunker(),
+                new InMemoryFileStore());
     }
 
     @Test
@@ -112,5 +114,24 @@ class AnthropicProtocolHandlerTest {
         assertThat(resp).isInstanceOf(ResponseEntity.class);
         Map<String, Object> rb = (Map<String, Object>) ((ResponseEntity<?>) resp).getBody();
         assertThat((int) rb.get("input_tokens")).isGreaterThan(0);
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void files_upload_returns_id_with_underscore_prefix() {
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("__file_name__", "doc.pdf");
+        body.put("__file_size__", 100L);
+
+        MockRequest req = new MockRequest(
+                "anthropic", "Bearer sk-ant-xxx",
+                "/anthropic/v1/files", "POST", body);
+        Object resp = handler.handle(req);
+
+        assertThat(resp).isInstanceOf(ResponseEntity.class);
+        Map<String, Object> rb = (Map<String, Object>) ((ResponseEntity<?>) resp).getBody();
+        assertThat((String) rb.get("id")).startsWith("file_");
+        assertThat(rb).containsEntry("type", "file");
+        assertThat(rb).containsEntry("filename", "doc.pdf");
     }
 }

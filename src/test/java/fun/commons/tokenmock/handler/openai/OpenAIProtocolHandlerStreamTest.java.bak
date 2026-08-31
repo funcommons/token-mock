@@ -7,7 +7,6 @@ import fun.commons.tokenmock.core.PlaceholderResources;
 import fun.commons.tokenmock.core.ResponseGenerator;
 import fun.commons.tokenmock.core.TokenEstimator;
 import fun.commons.tokenmock.handler.MockRequest;
-import fun.commons.tokenmock.registry.InMemoryFileStore;
 import fun.commons.tokenmock.registry.VendorRegistry;
 import fun.commons.tokenmock.config.MockProperties;
 import fun.commons.tokenmock.handler.video.VideoJobHandler;
@@ -47,7 +46,7 @@ class OpenAIProtocolHandlerStreamTest {
         PlaceholderResources ph = new PlaceholderResources();
         AudioImageHandler audioImage = new AudioImageHandler(ph);
         VideoJobHandler video = new VideoJobHandler(ph);
-        handler = new OpenAIProtocolHandler(registry, generator, embed, audioImage, video, new InMemoryFileStore());
+        handler = new OpenAIProtocolHandler(registry, generator, embed, audioImage, video);
     }
 
     @Test

@@ -6,7 +6,6 @@ import fun.commons.tokenmock.core.EmbeddingGenerator;
 import fun.commons.tokenmock.core.ResponseGenerator;
 import fun.commons.tokenmock.core.TokenEstimator;
 import fun.commons.tokenmock.handler.MockRequest;
-import fun.commons.tokenmock.registry.InMemoryFileStore;
 import fun.commons.tokenmock.registry.VendorRegistry;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -50,7 +49,7 @@ class OpenAIProtocolHandlerTest {
         fun.commons.tokenmock.core.PlaceholderResources ph = new fun.commons.tokenmock.core.PlaceholderResources();
         AudioImageHandler audioImage = new AudioImageHandler(ph);
         fun.commons.tokenmock.handler.video.VideoJobHandler video = new fun.commons.tokenmock.handler.video.VideoJobHandler(ph);
-        handler = new OpenAIProtocolHandler(registry, generator, embed, audioImage, video, new InMemoryFileStore());
+        handler = new OpenAIProtocolHandler(registry, generator, embed, audioImage, video);
     }
 
     @Test

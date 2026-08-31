@@ -1,5 +1,14 @@
 # Changelog
 
+## v1.2.0 (2026-08-31)
+
+Files API — upload / list / detail / content download / delete, shared between OpenAI and Anthropic through one in-memory store (`file-` vs `file_` prefixes keep namespaces separate):
+
+- OpenAI `POST /v1/files` + 4 siblings — `file-xxx` ids, OpenAI response shape (`object/bytes/purpose/created_at`)
+- Anthropic `POST /v1/files` + 4 siblings — `file_xxx` ids, Anthropic response shape (`type/filename/mime_type/size_bytes/downloadable`)
+- Backend: `InMemoryFileStore` (in `registry/`, thread-safe via `ConcurrentHashMap`); tests assert namespace isolation
+- Dispatch controller gains GET/DELETE routes plus multipart body extraction
+
 ## v1.1.0 (2026-08-31)
 
 New endpoints (covers higher-frequency vendor-original capabilities):

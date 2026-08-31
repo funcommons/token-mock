@@ -6,6 +6,7 @@ import fun.commons.tokenmock.core.EmbeddingGenerator;
 import fun.commons.tokenmock.core.ResponseGenerator;
 import fun.commons.tokenmock.handler.MockRequest;
 import fun.commons.tokenmock.handler.ProtocolHandler;
+import fun.commons.tokenmock.registry.InMemoryFileStore;
 import fun.commons.tokenmock.registry.VendorRegistry;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -13,6 +14,7 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.io.IOException;
+import java.time.Instant;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -24,6 +26,11 @@ import java.util.Map;
  *   POST /v1/chat/completions        (non-stream + stream=true)
  *   POST /v1/embeddings
  *   GET  /v1/models
+ *   POST /v1/files                   (multipart upload, returns file-xxx id)
+ *   GET  /v1/files
+ *   GET  /v1/files/{id}
+ *   GET  /v1/files/{id}/content      (raw bytes download)
+ *   DELETE /v1/files/{id}
  */
 @Component
 public class OpenAIProtocolHandler implements ProtocolHandler {
@@ -33,16 +40,19 @@ public class OpenAIProtocolHandler implements ProtocolHandler {
     private final EmbeddingGenerator embeddingGenerator;
     private final AudioImageHandler audioImageHandler;
     private final fun.commons.tokenmock.handler.video.VideoJobHandler videoJobHandler;
+    private final InMemoryFileStore fileStore;
 
     public OpenAIProtocolHandler(VendorRegistry registry, ResponseGenerator generator,
                                   EmbeddingGenerator embeddingGenerator,
                                   AudioImageHandler audioImageHandler,
-                                  fun.commons.tokenmock.handler.video.VideoJobHandler videoJobHandler) {
+                                  fun.commons.tokenmock.handler.video.VideoJobHandler videoJobHandler,
+                                  InMemoryFileStore fileStore) {
         this.registry = registry;
         this.generator = generator;
         this.embeddingGenerator = embeddingGenerator;
         this.audioImageHandler = audioImageHandler;
         this.videoJobHandler = videoJobHandler;
+        this.fileStore = fileStore;
     }
 
     @Override
@@ -62,6 +72,9 @@ public class OpenAIProtocolHandler implements ProtocolHandler {
         if (path.startsWith("/v1/videos")) {
             return handleVideo(vendor, path, request);
         }
+        if (path.startsWith("/v1/files")) {
+            return handleFiles(path, request);
+        }
         return switch (path) {
             case "/v1/chat/completions" -> handleChat(vendor, request);
             case "/v1/embeddings" -> handleEmbeddings(vendor, request);
@@ -73,6 +86,81 @@ public class OpenAIProtocolHandler implements ProtocolHandler {
             case "/v1/models" -> handleListModels(vendor);
             default -> throw new IllegalArgumentException("unknown path: " + path);
         };
+    }
+
+    /**
+     * Files API:POST/GET/DELETE /v1/files,GET /v1/files/{id}/content.
+     * <p>OpenAI 用 {@code file-} 前缀 24 字符 id;multipart 文件字节存到 {@link InMemoryFileStore}.
+     */
+    private Object handleFiles(String path, MockRequest request) {
+        if (path.equals("/v1/files")) {
+            return switch (request.getMethod()) {
+                case "POST" -> handleFileUpload(request);
+                case "GET" -> ResponseEntity.ok(Map.of(
+                        "data", fileStore.list(InMemoryFileStore.Namespace.OPENAI).stream()
+                                .map(f -> Map.<String, Object>of(
+                                        "id", f.id(),
+                                        "object", "file",
+                                        "bytes", f.size(),
+                                        "created_at", f.createdAt().getEpochSecond(),
+                                        "filename", f.filename(),
+                                        "purpose", f.purpose()
+                                )).toList()
+                ));
+                default -> throw new IllegalArgumentException("unsupported method on /v1/files: " + request.getMethod());
+            };
+        }
+        // /v1/files/{id}  or  /v1/files/{id}/content
+        String[] parts = path.split("/");
+        String id = parts.length >= 4 ? parts[3] : "";
+        var maybe = fileStore.findById(id);
+        if (maybe.isEmpty()) {
+            return ResponseEntity.status(404).body(errorBody("not_found", "file not found: " + id));
+        }
+        var entry = maybe.get();
+        if (parts.length == 5 && "content".equals(parts[4])) {
+            MediaType ct = entry.contentType() != null
+                    ? MediaType.parseMediaType(entry.contentType())
+                    : MediaType.APPLICATION_OCTET_STREAM;
+            return ResponseEntity.ok().contentType(ct).body(entry.bytes());
+        }
+        if (parts.length == 4) {
+            return switch (request.getMethod()) {
+                case "GET" -> ResponseEntity.ok(Map.<String, Object>of(
+                        "id", entry.id(),
+                        "object", "file",
+                        "bytes", entry.size(),
+                        "created_at", entry.createdAt().getEpochSecond(),
+                        "filename", entry.filename(),
+                        "purpose", entry.purpose()
+                ));
+                case "DELETE" -> {
+                    fileStore.delete(id);
+                    yield ResponseEntity.ok(Map.of("id", id, "object", "file", "deleted", true));
+                }
+                default -> throw new IllegalArgumentException(
+                        "unsupported method on /v1/files/{id}: " + request.getMethod());
+            };
+        }
+        throw new IllegalArgumentException("unknown files path: " + path);
+    }
+
+    private Object handleFileUpload(MockRequest request) {
+        Map<String, Object> body = asMap(request.getBody());
+        String filename = stringOr(body.get("__file_name__"), "upload.bin");
+        String purpose = stringOr(body.get("purpose"), "assistants");
+        String contentType = stringOr(body.get("__file_content_type__"), "application/octet-stream");
+        Long size = body.get("__file_size__") instanceof Number n ? n.longValue() : 0L;
+        byte[] placeholder = ("[mock] " + filename + " (" + size + " bytes)").getBytes();
+        var entry = fileStore.save(InMemoryFileStore.Namespace.OPENAI, filename, purpose, contentType, placeholder);
+        return ResponseEntity.ok(Map.<String, Object>of(
+                "id", entry.id(),
+                "object", "file",
+                "bytes", entry.size(),
+                "created_at", entry.createdAt().getEpochSecond(),
+                "filename", entry.filename(),
+                "purpose", entry.purpose()
+        ));
     }
 
     private Object handleVideo(VendorConfig vendor, String path, MockRequest request) {
