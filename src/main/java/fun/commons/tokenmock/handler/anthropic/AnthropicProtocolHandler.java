@@ -25,6 +25,7 @@ import java.util.UUID;
  * Endpoints (relative to /anthropic):
  *   POST /v1/messages          (non-stream)
  *   POST /v1/messages?stream=true  (SSE)
+ *   POST /v1/messages/count_tokens  (input_tokens 预估算)
  *   GET  /v1/models
  * <p>
  * Auth: x-api-key header (not Bearer).
@@ -62,9 +63,26 @@ public class AnthropicProtocolHandler implements ProtocolHandler {
         String path = request.getPath().replaceFirst("^/[^/]+", "");
         return switch (path) {
             case "/v1/messages" -> handleMessages(request);
+            case "/v1/messages/count_tokens" -> handleCountTokens(request);
             case "/v1/models" -> handleListModels(vendor);
             default -> throw new IllegalArgumentException("unknown path: " + path);
         };
+    }
+
+    /**
+     * {@code POST /v1/messages/count_tokens} — token 预算.
+     * <p>Claude SDK 在上下文管理 / 长对话限流校验时会调;返回的 shape 与
+     * 真实厂商对齐:{@code {input_tokens:N}}.
+     */
+    private Object handleCountTokens(MockRequest request) {
+        @SuppressWarnings("unchecked")
+        Map<String, Object> body = asMap(request.getBody());
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> messages =
+                (List<Map<String, Object>>) body.getOrDefault("messages", List.of());
+        String userText = extractUserText(messages);
+        int inputTokens = estimator.estimate(userText);
+        return ResponseEntity.ok(Map.of("input_tokens", inputTokens));
     }
 
     private boolean isAuthenticated(VendorConfig vendor, MockRequest req) {

@@ -93,8 +93,8 @@ class MockDispatchControllerTest {
                 List.of(
                         new OpenAIProtocolHandler(registry, generator, embed, audioImage, video),
                         new AnthropicProtocolHandler(registry, estimator, new fun.commons.tokenmock.core.SseChunker()),
-                        new GeminiProtocolHandler(registry, estimator),
-                        new AzureProtocolHandler(registry, generator),
+                        new GeminiProtocolHandler(registry, estimator, embed),
+                        new AzureProtocolHandler(registry, generator, embed),
                         new BedrockProtocolHandler(registry, estimator),
                         new OllamaProtocolHandler(registry, estimator)
                 ),

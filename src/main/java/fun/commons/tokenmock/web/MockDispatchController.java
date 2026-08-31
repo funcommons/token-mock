@@ -63,7 +63,7 @@ public class MockDispatchController {
         return rateLimitersBySlug.computeIfAbsent(slug, s -> new VendorRateLimiter(vendor::getRateLimit));
     }
 
-    @RequestMapping("/{slug}/**")
+    @RequestMapping(value = "/{slug}/**", consumes = {"application/json", "application/x-www-form-urlencoded"})
     public Object dispatch(@PathVariable String slug,
                             @RequestHeader(value = "Authorization", required = false) String auth,
                             @RequestHeader(value = "x-api-key", required = false) String apiKey,
@@ -72,6 +72,30 @@ public class MockDispatchController {
                             @RequestHeader(value = "X-Mock-Admin-Token", required = false) String adminToken,
                             @Valid @RequestBody(required = false) Map<String, Object> body,
                             HttpServletRequest request) {
+        return doDispatch(slug, auth, apiKey, googKey, azureKey, adminToken, body, request);
+    }
+
+    /**
+     * Multipart alias of {@link #dispatch} for STT endpoints. Spring would
+     * otherwise reject the request with 415 because the typed {@code Map} body
+     * can't bind multipart payloads — we read parts directly and feed the
+     * handler the same synthetic body the JSON path produces.
+     */
+    @RequestMapping(value = "/{slug}/**", consumes = "multipart/form-data")
+    public Object dispatchMultipart(@PathVariable String slug,
+                                     @RequestHeader(value = "Authorization", required = false) String auth,
+                                     @RequestHeader(value = "x-api-key", required = false) String apiKey,
+                                     @RequestHeader(value = "x-goog-api-key", required = false) String googKey,
+                                     @RequestHeader(value = "api-key", required = false) String azureKey,
+                                     @RequestHeader(value = "X-Mock-Admin-Token", required = false) String adminToken,
+                                     HttpServletRequest request) {
+        Map<String, Object> body = extractMultipartBody(request);
+        return doDispatch(slug, auth, apiKey, googKey, azureKey, adminToken, body, request);
+    }
+
+    private Object doDispatch(String slug, String auth, String apiKey, String googKey,
+                              String azureKey, String adminToken, Map<String, Object> body,
+                              HttpServletRequest request) {
         if ("admin".equals(slug)) {
             return ResponseEntity.status(401).body(Map.of(
                     "error", Map.of("message", "admin endpoints require X-Mock-Admin-Token", "type", "auth_required")
@@ -175,6 +199,33 @@ public class MockDispatchController {
         err.put("type", type);
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("error", err);
+        return body;
+    }
+
+    /**
+     * Build the synthetic body that {@code AudioImageHandler} reads when the
+     * real request was multipart/form-data. We pull the {@code file} part's
+     * size and the {@code model}/{@code language} fields out of the parts and
+     * leave the rest of the request body alone (no real transcription).
+     */
+    private Map<String, Object> extractMultipartBody(HttpServletRequest request) {
+        Map<String, Object> body = new LinkedHashMap<>();
+        long fileSize = 0;
+        try {
+            for (jakarta.servlet.http.Part part : request.getParts()) {
+                String name = part.getName();
+                if ("file".equals(name)) {
+                    fileSize = part.getSize();
+                } else if (part.getSubmittedFileName() == null) {
+                    // Simple form field
+                    byte[] raw = part.getInputStream().readAllBytes();
+                    body.put(name, new String(raw, java.nio.charset.StandardCharsets.UTF_8));
+                }
+            }
+        } catch (Exception ex) {
+            // partial read is fine — the handler only needs size + language
+        }
+        body.put("__file_size__", fileSize);
         return body;
     }
 }

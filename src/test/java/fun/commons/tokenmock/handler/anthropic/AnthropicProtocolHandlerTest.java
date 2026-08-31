@@ -96,4 +96,21 @@ class AnthropicProtocolHandlerTest {
         assertThat(frames.stream().map(f -> f.get("type")))
                 .contains("content_block_start", "content_block_delta", "content_block_stop", "message_stop");
     }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void count_tokens_returns_input_token_estimate() {
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("model", "claude-3-5-sonnet-20241022");
+        body.put("messages", List.of(Map.of("role", "user", "content", "你好世界")));
+
+        MockRequest req = new MockRequest(
+                "anthropic", "Bearer sk-ant-xxx",
+                "/anthropic/v1/messages/count_tokens", body);
+        Object resp = handler.handle(req);
+
+        assertThat(resp).isInstanceOf(ResponseEntity.class);
+        Map<String, Object> rb = (Map<String, Object>) ((ResponseEntity<?>) resp).getBody();
+        assertThat((int) rb.get("input_tokens")).isGreaterThan(0);
+    }
 }

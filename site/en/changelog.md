@@ -1,5 +1,13 @@
 # Changelog
 
+## v1.1.0 (2026-08-31)
+
+New endpoints (covers higher-frequency vendor-original capabilities):
+
+- **Anthropic `POST /v1/messages/count_tokens`** — used by Claude SDK at startup / for long-context quota checks; returns `{input_tokens:N}`
+- **Google Gemini `:countTokens` + `:embedContent` + `:batchEmbedContents`** — deterministic 768-dim vectors, covers RAG and offline batch embedding
+- **Azure OpenAI `/openai/deployments/{dep}/embeddings?api-version=...`** — required for Azure-side RAG integration tests; OpenAI-shaped so SDKs switch transparently
+
 ## v1.0.0 (2026-08-31)
 
 Initial release.

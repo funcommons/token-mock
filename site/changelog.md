@@ -1,5 +1,13 @@
 # 更新日志
 
+## v1.1.0 (2026-08-31)
+
+新增端点(集成测试覆盖更高频的厂商自带能力):
+
+- **Anthropic `POST /v1/messages/count_tokens`** — Claude SDK 启动 / 长上下文限流校验常用;返回 `{input_tokens:N}`
+- **Google Gemini `:countTokens` + `:embedContent` + `:batchEmbedContents`** — 768 维确定性向量,补齐 RAG / 离线批 embedding 场景
+- **Azure OpenAI `/openai/deployments/{dep}/embeddings?api-version=...`** — Azure 上 RAG 集成测试必备,shape 与 OpenAI 一致便于 SDK 透明切换
+
 ## v1.0.0 (2026-08-31)
 
 首发版本。

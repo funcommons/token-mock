@@ -2,6 +2,7 @@ package fun.commons.tokenmock.handler.azure;
 
 import fun.commons.tokenmock.config.DeploymentConfig;
 import fun.commons.tokenmock.config.VendorConfig;
+import fun.commons.tokenmock.core.EmbeddingGenerator;
 import fun.commons.tokenmock.core.ResponseGenerator;
 import fun.commons.tokenmock.handler.MockRequest;
 import fun.commons.tokenmock.handler.ProtocolHandler;
@@ -27,10 +28,13 @@ public class AzureProtocolHandler implements ProtocolHandler {
 
     private final VendorRegistry registry;
     private final ResponseGenerator generator;
+    private final EmbeddingGenerator embeddings;
 
-    public AzureProtocolHandler(VendorRegistry registry, ResponseGenerator generator) {
+    public AzureProtocolHandler(VendorRegistry registry, ResponseGenerator generator,
+                                  EmbeddingGenerator embeddings) {
         this.registry = registry;
         this.generator = generator;
+        this.embeddings = embeddings;
     }
 
     @Override
@@ -47,11 +51,14 @@ public class AzureProtocolHandler implements ProtocolHandler {
         }
 
         String path = request.getPath().replaceFirst("^/[^/]+", "");
+        // strip query string for path matching
+        int q = path.indexOf('?');
+        if (q > 0) path = path.substring(0, q);
         if (path.contains("/deployments/") && path.endsWith("/chat/completions")) {
             return handleChat(vendor, path, request);
         }
         if (path.contains("/deployments/") && path.endsWith("/embeddings")) {
-            return ResponseEntity.ok(Map.of("object", "list", "data", List.of()));
+            return handleEmbeddings(vendor, path, request);
         }
         throw new IllegalArgumentException("unknown azure path: " + path);
     }
@@ -73,6 +80,23 @@ public class AzureProtocolHandler implements ProtocolHandler {
         int start = path.indexOf("/deployments/") + "/deployments/".length();
         int end = path.indexOf("/", start);
         return start >= 0 && end > start ? path.substring(start, end) : "default";
+    }
+
+    /**
+     * {@code POST /openai/deployments/{dep}/embeddings} — Azure 版 OpenAI 形态 embedding.
+     * <p>入参:{@code {input:string|string[]}};出参 shape 与 OpenAI 相同(便于 SDK 透明切换).
+     */
+    private Object handleEmbeddings(VendorConfig vendor, String path, MockRequest request) {
+        String model = mapDeployment(vendor, extractDeployment(path));
+        Map<String, Object> body = asMap(request.getBody());
+        Object input = body.get("input");
+        List<String> inputs = new java.util.ArrayList<>();
+        if (input instanceof String s) {
+            inputs.add(s);
+        } else if (input instanceof List<?> list) {
+            for (Object x : list) inputs.add(String.valueOf(x));
+        }
+        return ResponseEntity.ok(embeddings.embeddingsResponse(model, inputs, 1536));
     }
 
     private String mapDeployment(VendorConfig vendor, String deployment) {
