@@ -1,0 +1,174 @@
+server:
+  port: 9999
+
+spring:
+  application:
+    name: token-mock
+  # 独立部署时默认激活 mock profile(所有业务/管理端点都挂在 @Profile("mock") 下)。
+  # 仅在未显式设置任何 profile 时生效;嵌入单体应用请自行控制,生产环境不要激活。
+  profiles:
+    default: mock
+  servlet:
+    multipart:
+      max-file-size: 50MB
+      max-request-size: 60MB
+  threads:
+    virtual:
+      enabled: true
+  jackson:
+    default-property-inclusion: non_null
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics
+
+springdoc:
+  swagger-ui:
+    path: /swagger-ui.html
+    operations-sorter: alpha
+  api-docs:
+    path: /v3/api-docs
+  default-flat-param-object: true
+
+mock:
+  admin-token: ${MOCK_ADMIN_TOKEN:mock-admin-secret}
+
+  vendors:
+    # ============ OpenAI 协议族 — 主流厂商 ============
+    - slug: openai
+      protocol: openai
+      key: "sk-mock-openai-1234567890abcdef"
+      latency-ms: 200
+      models:
+        - code: gpt-4o
+          modality: chat
+          context: 128000
+        - code: gpt-4o-mini
+          modality: chat
+          context: 128000
+        - code: text-embedding-3-small
+          modality: embed
+          dimensions: 1536
+
+    - slug: deepseek
+      protocol: openai
+      key: "sk-mock-deepseek-abcdef1234567890"
+      latency-ms: 300
+      models:
+        - code: deepseek-chat
+          modality: chat
+        - code: deepseek-reasoner
+          modality: chat
+
+    - slug: moonshot
+      protocol: openai
+      key: "sk-mock-moonshot-xyz1234567890"
+      latency-ms: 250
+      models:
+        - code: moonshot-v1-8k
+          modality: chat
+        - code: moonshot-v1-32k
+          modality: chat
+
+    - slug: zhipu
+      protocol: openai
+      key: "sk-mock-zhipu-glmabcdef"
+      latency-ms: 280
+      models:
+        - code: glm-4-plus
+          modality: chat
+        - code: glm-4-flash
+          modality: chat
+
+    - slug: tongyi
+      protocol: openai
+      key: "sk-mock-tongyi-qwen"
+      latency-ms: 220
+      models:
+        - code: qwen-max
+          modality: chat
+        - code: qwen-turbo
+          modality: chat
+
+    - slug: minimax
+      protocol: openai
+      key: "sk-mock-minimax-abcd"
+      latency-ms: 320
+      models:
+        - code: abab6.5-chat
+          modality: chat
+
+    - slug: mistral
+      protocol: openai
+      key: "sk-mock-mistral-xyz"
+      latency-ms: 180
+      models:
+        - code: mistral-large-latest
+          modality: chat
+        - code: mistral-embed
+          modality: embed
+          dimensions: 1024
+
+    # ============ Anthropic ============
+    - slug: anthropic
+      protocol: anthropic
+      key: "sk-ant-mock-anthropic-xxx"
+      latency-ms: 250
+      models:
+        - code: claude-3-5-sonnet-20241022
+          modality: chat
+        - code: claude-3-5-haiku-20241022
+          modality: chat
+        - code: claude-3-opus-20240229
+          modality: chat
+
+    # ============ Gemini ============
+    - slug: gemini
+      protocol: gemini
+      key: "AIzaSyMockGeminiKey1234567890"
+      latency-ms: 280
+      models:
+        - code: gemini-1.5-pro
+          modality: chat
+        - code: gemini-1.5-flash
+          modality: chat
+
+    # ============ Azure OpenAI ============
+    - slug: azure
+      protocol: azure
+      key: "mock-azure-key-1234567890abcdef"
+      latency-ms: 300
+      deployments:
+        - deployment: gpt-4o-deployment
+          model: gpt-4o
+        - deployment: gpt-35-turbo-deployment
+          model: gpt-35-turbo
+
+    # ============ AWS Bedrock ============
+    - slug: bedrock
+      protocol: bedrock
+      key: "mock-bedrock-aws4-key"
+      latency-ms: 350
+      models:
+        - code: anthropic.claude-3-5-sonnet
+          modality: chat
+        - code: amazon.titan-text-express
+          modality: chat
+
+    # ============ Ollama ============
+    - slug: ollama
+      protocol: ollama
+      key: "ollama"
+      latency-ms: 100
+      models:
+        - code: llama3:8b
+          modality: chat
+        - code: qwen2:7b
+          modality: chat
+
+logging:
+  level:
+    fun.commons.tokenmock: DEBUG
+    org.springframework: WARN

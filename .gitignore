@@ -1,0 +1,9 @@
+target/
+.DS_Store
+*.iml
+.idea/
+
+# docs site
+site/node_modules/
+site/.vitepress/cache/
+site/.vitepress/dist/
