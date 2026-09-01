@@ -1,5 +1,14 @@
 # 更新日志
 
+## v1.4.0 (2026-09-01)
+
+补齐五大厂协议覆盖,token-mock 成为业内唯一完整覆盖 Anthropic + Google Gemini + Azure OpenAI + Bedrock + OpenAI 五大协议的工程级 mock server:
+
+- **Bedrock Converse + ConverseStream** — `POST /model/{modelId}/converse` + `/converse-stream`(SSE),统一 schema,`messages[].content[].{text|image|toolUse|toolResult}` 多态块;LangChain `ChatBedrockConverse` / Strands Agents 默认走它
+- **Anthropic Message Batches** — `POST/GET/cancel` + `GET .../results`(jsonl)+ `GET .../batches`(list,`?limit=`),5 端点;与 OpenAI batches 对称
+- **Gemini Files API** — `POST /upload/v1beta/files`(resumable,实际收字节)+ `GET/DELETE /v1beta/files/{name}` + list;generateContent 接受 `file_data.file_uri` 引用(`state: ACTIVE`)
+- **Azure OpenAI v1 API** — `/openai/v1/{responses,audio/speech,audio/transcriptions,images/generations,batches}` + cancel;与 OpenAI 同 schema,`?api-version=preview` 容错;legacy `/openai/deployments/{dep}/...` 双形态并存
+
 ## v1.3.0 (2026-08-31)
 
 OpenAI 2025 后两个主力端点接入,Agent SDK / 离线批处理集成测试覆盖:

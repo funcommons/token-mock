@@ -7,9 +7,11 @@ import fun.commons.tokenmock.core.EmbeddingGenerator;
 import fun.commons.tokenmock.core.ResponseGenerator;
 import fun.commons.tokenmock.core.TokenEstimator;
 import fun.commons.tokenmock.exception.MockExceptionHandler;
+import fun.commons.tokenmock.handler.anthropic.AnthropicBatchJobHandler;
 import fun.commons.tokenmock.handler.anthropic.AnthropicProtocolHandler;
 import fun.commons.tokenmock.handler.azure.AzureProtocolHandler;
 import fun.commons.tokenmock.handler.bedrock.BedrockProtocolHandler;
+import fun.commons.tokenmock.handler.gemini.GeminiFileStore;
 import fun.commons.tokenmock.handler.gemini.GeminiProtocolHandler;
 import fun.commons.tokenmock.handler.ollama.OllamaProtocolHandler;
 import fun.commons.tokenmock.handler.openai.OpenAIProtocolHandler;
@@ -95,10 +97,10 @@ class MockDispatchControllerTest {
         MockDispatchController controller = new MockDispatchController(
                 List.of(
                         new OpenAIProtocolHandler(registry, generator, embed, audioImage, video, new InMemoryFileStore(), new ResponseJobHandler(), new BatchJobHandler()),
-                        new AnthropicProtocolHandler(registry, estimator, new fun.commons.tokenmock.core.SseChunker(), new InMemoryFileStore()),
-                        new GeminiProtocolHandler(registry, estimator, embed),
-                        new AzureProtocolHandler(registry, generator, embed),
-                        new BedrockProtocolHandler(registry, estimator),
+                        new AnthropicProtocolHandler(registry, estimator, new fun.commons.tokenmock.core.SseChunker(), new InMemoryFileStore(), new AnthropicBatchJobHandler()),
+                        new GeminiProtocolHandler(registry, estimator, embed, new GeminiFileStore()),
+                        new AzureProtocolHandler(registry, generator, embed, audioImage, video, new ResponseJobHandler(), new BatchJobHandler()),
+                        new BedrockProtocolHandler(registry, estimator, new fun.commons.tokenmock.core.SseChunker()),
                         new OllamaProtocolHandler(registry, estimator)
                 ),
                 props,

@@ -37,7 +37,8 @@ class GeminiProtocolHandlerTest {
         VendorRegistry registry = new VendorRegistry(props);
         registry.init();
 
-        handler = new GeminiProtocolHandler(registry, new TokenEstimator(), new EmbeddingGenerator());
+        handler = new GeminiProtocolHandler(registry, new TokenEstimator(), new EmbeddingGenerator(),
+                new GeminiFileStore());
     }
 
     @Test

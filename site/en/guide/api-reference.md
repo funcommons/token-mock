@@ -30,27 +30,57 @@ Business endpoints are prefixed with the vendor slug; admin endpoints live under
 | Method | Endpoint | Notes |
 |--------|----------|-------|
 | POST | `/v1/messages` | Messages API; `stream:true` emits SSE (`message_start` / `content_block_delta` / `message_stop`) |
+| POST | `/v1/messages/count_tokens` | input-side token budget (`{input_tokens:N}`) |
+| POST | `/v1/files` (multipart) | upload, returns `file_xxx` id |
+| GET | `/v1/files` | list |
+| GET | `/v1/files/{id}` | detail |
+| GET | `/v1/files/{id}/content` | download |
+| DELETE | `/v1/files/{id}` | delete |
+| POST | `/v1/messages/batches` | create offline batch (`msgbatch_xxx`, `processing_status: in_progress`) |
+| GET | `/v1/messages/batches/{id}` | detail |
+| GET | `/v1/messages/batches/{id}/results` | jsonl, one line per request (`succeeded`/`errored`) |
+| POST | `/v1/messages/batches/{id}/cancel` | cancel |
+| GET | `/v1/messages/batches?limit=N` | list |
 | GET | `/v1/models` | model list |
 
 ### Gemini (`/gemini/…`)
 
 | Method | Endpoint | Notes |
 |--------|----------|-------|
-| POST | `/v1/models/{model}:generateContent` | non-streaming |
+| POST | `/v1/models/{model}:generateContent` | non-streaming, accepts `file_data.file_uri` references |
 | POST | `/v1/models/{model}:streamGenerateContent` | SSE streaming |
+| POST | `/v1/models/{model}:countTokens` | `{totalTokens:N}` |
+| POST | `/v1/models/{model}:embedContent` | single text embedding, `{embedding:{values:[768]}}` |
+| POST | `/v1/models/{model}:batchEmbedContents` | batch embedding |
+| POST | `/upload/v1beta/files` | resumable upload (single POST, bytes are received), `{name:"files/xxx", state:{name:"ACTIVE"}}` |
+| GET | `/v1beta/files` | list |
+| GET | `/v1beta/files/{name}` | detail |
+| DELETE | `/v1beta/files/{name}` | delete |
 | GET | `/v1/models` | model list |
 
 ### Azure (`/azure/…`)
 
 | Method | Endpoint | Notes |
 |--------|----------|-------|
-| POST | `/openai/deployments/{deployment}/chat/completions?api-version=…` | deployment-style URL |
+| POST | `/openai/deployments/{dep}/chat/completions?api-version=…` | legacy deployment style |
+| POST | `/openai/deployments/{dep}/embeddings?api-version=…` | legacy embedding |
+| POST | `/openai/v1/responses?api-version=preview` | Responses API (sync / background / previous_response_id) |
+| POST | `/openai/v1/responses/{id}/cancel` | cancel |
+| GET | `/openai/v1/responses/{id}` | detail |
+| POST | `/openai/v1/audio/speech?api-version=preview` | TTS, MP3 |
+| POST | `/openai/v1/audio/transcriptions?api-version=preview` | STT (multipart) |
+| POST | `/openai/v1/images/generations?api-version=preview` | image generation, URL / b64_json |
+| POST | `/openai/v1/batches?api-version=preview` | offline batch (`batch_xxx`) |
+| GET | `/openai/v1/batches/{id}` | detail |
+| POST | `/openai/v1/batches/{id}/cancel` | cancel |
 
 ### Bedrock (`/bedrock/…`)
 
 | Method | Endpoint | Notes |
 |--------|----------|-------|
-| POST | `/model/{vendor}.{model}/invoke` | simplified SigV4, JSON in / JSON out |
+| POST | `/model/{vendor}.{model}/invoke` | legacy model-native payload (SigV4 skipped) |
+| POST | `/model/{modelId}/converse` | Converse sync, unified schema, `messages[].content[].{text\|toolUse\|…}` |
+| POST | `/model/{modelId}/converse-stream` | Converse SSE (`messageStart` / `contentBlockDelta` / `messageStop` / `metadata`) |
 
 ### Ollama (`/ollama/…`)
 

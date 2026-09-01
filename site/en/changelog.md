@@ -1,5 +1,14 @@
 # Changelog
 
+## v1.4.0 (2026-09-01)
+
+Completes five-vendor protocol coverage; token-mock is now the only engineering-grade mock server covering Anthropic + Google Gemini + Azure OpenAI + Bedrock + OpenAI:
+
+- **Bedrock Converse + ConverseStream** — `POST /model/{modelId}/converse` + `/converse-stream` (SSE), unified schema with `messages[].content[].{text|image|toolUse|toolResult}` polymorphic blocks; what LangChain `ChatBedrockConverse` and Strands Agents use by default
+- **Anthropic Message Batches** — `POST/GET/cancel` + `GET .../results` (jsonl) + `GET .../batches` (list, `?limit=`), 5 endpoints; mirrors the OpenAI batches surface
+- **Gemini Files API** — `POST /upload/v1beta/files` (resumable, receives bytes in our mock) + `GET/DELETE /v1beta/files/{name}` + list; `generateContent` accepts `file_data.file_uri` references (`state: ACTIVE`)
+- **Azure OpenAI v1 API** — `/openai/v1/{responses, audio/speech, audio/transcriptions, images/generations, batches}` + cancel; same schema as OpenAI, accepts `?api-version=preview`; legacy `/openai/deployments/{dep}/...` coexists
+
 ## v1.3.0 (2026-08-31)
 
 OpenAI's two main 2025 endpoints, covering Agent SDK and offline batch integration tests:

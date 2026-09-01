@@ -30,27 +30,57 @@
 | 方法 | 端点 | 说明 |
 |------|------|------|
 | POST | `/v1/messages` | Messages API,`stream:true` 走 SSE(`message_start` / `content_block_delta` / `message_stop`) |
+| POST | `/v1/messages/count_tokens` | 输入侧 token 预算(`{input_tokens:N}`) |
+| POST | `/v1/files` (multipart) | 上传,返回 `file_xxx` id |
+| GET | `/v1/files` | 列表 |
+| GET | `/v1/files/{id}` | 详情 |
+| GET | `/v1/files/{id}/content` | 下载 |
+| DELETE | `/v1/files/{id}` | 删除 |
+| POST | `/v1/messages/batches` | 创建离线 batch(`msgbatch_xxx`,processing_status `in_progress`) |
+| GET | `/v1/messages/batches/{id}` | 详情 |
+| GET | `/v1/messages/batches/{id}/results` | jsonl,每行一个 request 结果(`succeeded`/`errored`) |
+| POST | `/v1/messages/batches/{id}/cancel` | 取消 |
+| GET | `/v1/messages/batches?limit=N` | 列表 |
 | GET | `/v1/models` | 模型清单 |
 
 ### Gemini(`/gemini/…`)
 
 | 方法 | 端点 | 说明 |
 |------|------|------|
-| POST | `/v1/models/{model}:generateContent` | 非流式 |
+| POST | `/v1/models/{model}:generateContent` | 非流式,接受 `file_data.file_uri` 引用 |
 | POST | `/v1/models/{model}:streamGenerateContent` | SSE 流式 |
+| POST | `/v1/models/{model}:countTokens` | `{totalTokens:N}` |
+| POST | `/v1/models/{model}:embedContent` | 单文本 embedding,`{embedding:{values:[768个]}}` |
+| POST | `/v1/models/{model}:batchEmbedContents` | 批量 embedding |
+| POST | `/upload/v1beta/files` | resumable 上传(单 POST,实际收字节),`{name:"files/xxx", state:{name:"ACTIVE"}}` |
+| GET | `/v1beta/files` | 列表 |
+| GET | `/v1beta/files/{name}` | 详情 |
+| DELETE | `/v1beta/files/{name}` | 删除 |
 | GET | `/v1/models` | 模型清单 |
 
 ### Azure(`/azure/…`)
 
 | 方法 | 端点 | 说明 |
 |------|------|------|
-| POST | `/openai/deployments/{deployment}/chat/completions?api-version=…` | deployment 风格 URL |
+| POST | `/openai/deployments/{dep}/chat/completions?api-version=…` | legacy deployment 风格 |
+| POST | `/openai/deployments/{dep}/embeddings?api-version=…` | legacy embedding |
+| POST | `/openai/v1/responses?api-version=preview` | Responses API(同步/异步/previous_response_id) |
+| POST | `/openai/v1/responses/{id}/cancel` | 取消 |
+| GET | `/openai/v1/responses/{id}` | 详情 |
+| POST | `/openai/v1/audio/speech?api-version=preview` | TTS,返回 MP3 |
+| POST | `/openai/v1/audio/transcriptions?api-version=preview` | STT(multipart) |
+| POST | `/openai/v1/images/generations?api-version=preview` | 文生图 URL / b64_json |
+| POST | `/openai/v1/batches?api-version=preview` | 离线 batch(`batch_xxx`) |
+| GET | `/openai/v1/batches/{id}` | 详情 |
+| POST | `/openai/v1/batches/{id}/cancel` | 取消 |
 
 ### Bedrock(`/bedrock/…`)
 
 | 方法 | 端点 | 说明 |
 |------|------|------|
-| POST | `/model/{vendor}.{model}/invoke` | 简化 SigV4,JSON in / JSON out |
+| POST | `/model/{vendor}.{model}/invoke` | legacy 模型原生 payload(SigV4 跳过) |
+| POST | `/model/{modelId}/converse` | Converse 同步,统一 schema,`messages[].content[].{text\|toolUse\|…}` |
+| POST | `/model/{modelId}/converse-stream` | Converse SSE 流式(`messageStart` / `contentBlockDelta` / `messageStop` / `metadata`) |
 
 ### Ollama(`/ollama/…`)
 

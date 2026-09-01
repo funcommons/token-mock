@@ -24,7 +24,10 @@ import java.util.Map;
  *   POST /v1/models/{model}:countTokens
  *   POST /v1/models/{model}:embedContent
  *   POST /v1/models/{model}:batchEmbedContents
- *   GET  /v1/models
+ *   POST /upload/v1beta/files          (resumable, but we collapse to single POST)
+ *   GET  /v1beta/files
+ *   GET  /v1beta/files/{name}
+ *   DELETE /v1beta/files/{name}
  * <p>
  * Auth: key as query parameter (?key=xxx) OR header x-goog-api-key.
  */
@@ -34,12 +37,14 @@ public class GeminiProtocolHandler implements ProtocolHandler {
     private final VendorRegistry registry;
     private final TokenEstimator estimator;
     private final EmbeddingGenerator embeddings;
+    private final GeminiFileStore fileStore;
 
     public GeminiProtocolHandler(VendorRegistry registry, TokenEstimator estimator,
-                                  EmbeddingGenerator embeddings) {
+                                  EmbeddingGenerator embeddings, GeminiFileStore fileStore) {
         this.registry = registry;
         this.estimator = estimator;
         this.embeddings = embeddings;
+        this.fileStore = fileStore;
     }
 
     @Override
@@ -70,7 +75,50 @@ public class GeminiProtocolHandler implements ProtocolHandler {
         if (path.equals("/v1/models")) {
             return handleListModels(vendor);
         }
+        if (path.startsWith("/upload/v1beta/files")) {
+            // resumable collapsed: single POST records the file
+            if (!"POST".equals(request.getMethod())) {
+                throw new IllegalArgumentException("unsupported method on /upload: " + request.getMethod());
+            }
+            Map<String, Object> body = asMap(request.getBody());
+            String displayName = stringOr(body.get("__file_name__"), "upload.bin");
+            String mimeType = stringOr(body.get("__file_content_type__"), "application/octet-stream");
+            Long size = body.get("__file_size__") instanceof Number n ? n.longValue() : 0L;
+            var entry = fileStore.save(displayName, mimeType, size);
+            return ResponseEntity.ok(fileStore.toApiResponse(entry));
+        }
+        if (path.startsWith("/v1beta/files")) {
+            int q = path.indexOf('?');
+            String cleanPath = q > 0 ? path.substring(0, q) : path;
+            if (cleanPath.equals("/v1beta/files")) {
+                List<Map<String, Object>> data = fileStore.list().stream()
+                        .map(fileStore::toApiResponse).toList();
+                return ResponseEntity.ok(Map.of("files", data, "nextPageToken", ""));
+            }
+            String name = cleanPath.substring("/v1beta/files/".length());
+            if ("GET".equals(request.getMethod())) {
+                return fileStore.get(name)
+                        .<Object>map(f -> ResponseEntity.ok(fileStore.toApiResponse(f)))
+                        .orElseGet(() -> ResponseEntity.status(404).body(Map.of(
+                                "error", Map.of("code", 404, "message", "file not found",
+                                        "status", "NOT_FOUND"))));
+            }
+            if ("DELETE".equals(request.getMethod())) {
+                boolean ok = fileStore.delete(name);
+                if (!ok) {
+                    return ResponseEntity.status(404).body(Map.of(
+                            "error", Map.of("code", 404, "message", "file not found",
+                                    "status", "NOT_FOUND")));
+                }
+                return ResponseEntity.ok(Map.of());
+            }
+            throw new IllegalArgumentException("unsupported method on file: " + request.getMethod());
+        }
         throw new IllegalArgumentException("unknown path: " + path);
+    }
+
+    private String stringOr(Object v, String fb) {
+        return v == null || String.valueOf(v).isBlank() ? fb : String.valueOf(v);
     }
 
     /**
@@ -140,8 +188,9 @@ public class GeminiProtocolHandler implements ProtocolHandler {
         String model = extractModelFromPath(path);
         Map<String, Object> body = asMap(request.getBody());
         String userText = extractUserText(body);
-        String content = "[mock] 你说的内容是: " + userText;
-
+        String fileUri = extractFirstFileDataUri(body);
+        String content = "[mock] 你说的内容是: " + userText
+                + (fileUri != null ? " (含 file_data " + fileUri + ")" : "");
         Map<String, Object> response = new LinkedHashMap<>();
         response.put("candidates", List.of(Map.of(
                 "content", Map.of(
@@ -157,6 +206,27 @@ public class GeminiProtocolHandler implements ProtocolHandler {
                 "totalTokenCount", estimator.total(estimator.estimate(userText), estimator.estimate(content))
         ));
         return ResponseEntity.ok(response);
+    }
+
+    @SuppressWarnings("unchecked")
+    private String extractFirstFileDataUri(Map<String, Object> body) {
+        Object contents = body.get("contents");
+        if (!(contents instanceof List)) return null;
+        for (Object c : (List<?>) contents) {
+            if (!(c instanceof Map)) continue;
+            Object parts = ((Map<String, Object>) c).get("parts");
+            if (!(parts instanceof List)) continue;
+            for (Object p : (List<?>) parts) {
+                if (p instanceof Map) {
+                    Object fd = ((Map<String, Object>) p).get("file_data");
+                    if (fd instanceof Map) {
+                        Object uri = ((Map<String, Object>) fd).get("file_uri");
+                        if (uri instanceof String s) return s;
+                    }
+                }
+            }
+        }
+        return null;
     }
 
     private Object handleListModels(VendorConfig vendor) {

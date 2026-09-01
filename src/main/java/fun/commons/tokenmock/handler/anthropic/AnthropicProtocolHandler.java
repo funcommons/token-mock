@@ -32,6 +32,11 @@ import java.util.UUID;
  *   GET  /v1/files/{id}
  *   GET  /v1/files/{id}/content
  *   DELETE /v1/files/{id}
+ *   POST /v1/messages/batches        (create msgbatch_xxx, processing_status in_progress)
+ *   GET  /v1/messages/batches/{id}
+ *   GET  /v1/messages/batches/{id}/results  (jsonl, one entry per request)
+ *   POST /v1/messages/batches/{id}/cancel
+ *   GET  /v1/messages/batches        (list, ?limit=)
  *   GET  /v1/models
  * <p>
  * Auth: x-api-key header (not Bearer).
@@ -45,13 +50,15 @@ public class AnthropicProtocolHandler implements ProtocolHandler {
     private final TokenEstimator estimator;
     private final SseChunker sseChunker;
     private final InMemoryFileStore fileStore;
+    private final AnthropicBatchJobHandler batchHandler;
 
     public AnthropicProtocolHandler(VendorRegistry registry, TokenEstimator estimator, SseChunker sseChunker,
-                                     InMemoryFileStore fileStore) {
+                                     InMemoryFileStore fileStore, AnthropicBatchJobHandler batchHandler) {
         this.registry = registry;
         this.estimator = estimator;
         this.sseChunker = sseChunker;
         this.fileStore = fileStore;
+        this.batchHandler = batchHandler;
     }
 
     @Override
@@ -72,6 +79,9 @@ public class AnthropicProtocolHandler implements ProtocolHandler {
         String path = request.getPath().replaceFirst("^/[^/]+", "");
         if (path.startsWith("/v1/files")) {
             return handleFiles(path, request);
+        }
+        if (path.startsWith("/v1/messages/batches")) {
+            return handleBatches(path, request);
         }
         return switch (path) {
             case "/v1/messages" -> handleMessages(request);
@@ -158,6 +168,85 @@ public class AnthropicProtocolHandler implements ProtocolHandler {
                 "created_at", entry.createdAt().toString(),
                 "downloadable", true
         ));
+    }
+
+    /**
+     * Anthropic Message Batches API.
+     * <p>POST 创建 batch(从 requests[] 数出总数);GET 详情;GET results jsonl;
+     * POST cancel;GET list. 状态机 in_progress → ended,或 in_progress → canceling.
+     */
+    private Object handleBatches(String path, MockRequest request) {
+        int q = path.indexOf('?');
+        String query = q > 0 ? path.substring(q + 1) : "";
+        String cleanPath = q > 0 ? path.substring(0, q) : path;
+
+        if (cleanPath.equals("/v1/messages/batches")) {
+            return switch (request.getMethod()) {
+                case "POST" -> {
+                    @SuppressWarnings("unchecked")
+                    List<Object> requests = (List<Object>) asMap(request.getBody())
+                            .getOrDefault("requests", List.of());
+                    var job = batchHandler.create(Math.max(1, requests.size()));
+                    yield ResponseEntity.ok(batchHandler.toApiResponse(job));
+                }
+                case "GET" -> {
+                    int limit = parseLimit(query, 20);
+                    List<AnthropicBatchJobHandler.BatchJob> all = batchHandler.list(limit);
+                    List<Map<String, Object>> data = all.stream()
+                            .map(batchHandler::toApiResponse).toList();
+                    boolean hasMore = all.size() >= limit;
+                    yield ResponseEntity.ok(Map.of(
+                            "data", data,
+                            "has_more", hasMore,
+                            "first_id", data.isEmpty() ? null : data.get(0).get("id"),
+                            "last_id", data.isEmpty() ? null : data.get(data.size() - 1).get("id")
+                    ));
+                }
+                default -> throw new IllegalArgumentException(
+                        "unsupported method on /v1/messages/batches: " + request.getMethod());
+            };
+        }
+
+        // /v1/messages/batches/{id}  /v1/messages/batches/{id}/cancel  /v1/messages/batches/{id}/results
+        String[] parts = cleanPath.split("/");
+        String id = parts.length >= 5 ? parts[4] : "";
+        var maybe = batchHandler.get(id);
+        if (maybe.isEmpty()) {
+            return ResponseEntity.status(404).body(Map.of(
+                    "type", "error",
+                    "error", Map.of("type", "not_found_error", "message", "batch not found: " + id)));
+        }
+        if (parts.length == 5) {
+            return ResponseEntity.ok(batchHandler.toApiResponse(maybe.get()));
+        }
+        if (parts.length == 6 && "cancel".equals(parts[5])) {
+            if (!batchHandler.cancel(id)) {
+                return ResponseEntity.status(404).body(Map.of(
+                        "type", "error",
+                        "error", Map.of("type", "not_found_error", "message", "no cancellable batch: " + id)));
+            }
+            return ResponseEntity.ok(Map.of("id", id, "type", "message_batch",
+                    "processing_status", "canceling"));
+        }
+        if (parts.length == 6 && "results".equals(parts[5])) {
+            // jsonl — one JSON object per line
+            StringBuilder body = new StringBuilder();
+            for (Map<String, Object> line : maybe.get().results()) {
+                body.append(toJson(line)).append('\n');
+            }
+            return ResponseEntity.ok().header("Content-Type", "application/x-jsonlines")
+                    .body(body.toString());
+        }
+        throw new IllegalArgumentException("unknown batches path: " + path);
+    }
+
+    private int parseLimit(String query, int def) {
+        for (String kv : query.split("&")) {
+            if (kv.startsWith("limit=")) {
+                try { return Integer.parseInt(kv.substring(6)); } catch (NumberFormatException ignored) {}
+            }
+        }
+        return def;
     }
 
     /**

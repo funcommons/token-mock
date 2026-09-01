@@ -40,7 +40,7 @@ class AnthropicProtocolHandlerTest {
         registry.init();
 
         handler = new AnthropicProtocolHandler(registry, new TokenEstimator(), new SseChunker(),
-                new InMemoryFileStore());
+                new InMemoryFileStore(), new AnthropicBatchJobHandler());
     }
 
     @Test
@@ -133,5 +133,32 @@ class AnthropicProtocolHandlerTest {
         assertThat((String) rb.get("id")).startsWith("file_");
         assertThat(rb).containsEntry("type", "file");
         assertThat(rb).containsEntry("filename", "doc.pdf");
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void batches_create_returns_msgbatch_with_in_progress() {
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("requests", List.of(
+                Map.of("custom_id", "req-1", "params", Map.of(
+                        "model", "claude-3-5-sonnet-20241022",
+                        "messages", List.of(Map.of("role", "user", "content", "hi"))
+                )),
+                Map.of("custom_id", "req-2", "params", Map.of(
+                        "model", "claude-3-5-sonnet-20241022",
+                        "messages", List.of(Map.of("role", "user", "content", "hi"))
+                ))
+        ));
+
+        MockRequest req = new MockRequest(
+                "anthropic", "Bearer sk-ant-xxx",
+                "/anthropic/v1/messages/batches", "POST", body);
+        Object resp = handler.handle(req);
+        Map<String, Object> rb = (Map<String, Object>) ((ResponseEntity<?>) resp).getBody();
+        assertThat(rb.get("object")).isEqualTo("message_batch");
+        assertThat((String) rb.get("id")).startsWith("msgbatch_");
+        assertThat(rb.get("processing_status")).isEqualTo("in_progress");
+        Map<String, Object> counts = (Map<String, Object>) rb.get("request_counts");
+        assertThat((int) counts.get("processing")).isEqualTo(2);
     }
 }

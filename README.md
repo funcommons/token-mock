@@ -31,6 +31,9 @@
 | **确定性 Embedding** | 相同输入 → 相同向量,适合做缓存/相似度断言 |
 | **故障注入** | failureRate / forceNextNFailures / extraLatencyMs / statusCode,运行时动态调整 |
 | **限流** | QPS + Tokens-per-second 令牌桶,burst 突发容量,429 + `Retry-After` |
+| **Files / Batches** | OpenAI + Anthropic + Gemini 三家 Files API(同 in-memory 抽象,namespace 隔离),Batches API(50% 折扣场景离线批) |
+| **Responses API** | OpenAI 2025 后 Agent SDK 默认入口,支持 `previous_response_id` 状态延续 + `background:true` 异步任务 |
+| **Converse API** | AWS Bedrock 主推的统一 schema,覆盖 LangChain `ChatBedrockConverse` / Strands Agents |
 | **管理 API** | `/admin/**` 查厂商/统计/改故障/改限流,`X-Mock-Admin-Token` 保护 |
 | **OpenAPI** | springdoc-openapi,Swagger UI 按协议分组,在线 curl 调试 |
 
