@@ -50,7 +50,7 @@ class OpenAIProtocolHandlerTest {
         fun.commons.tokenmock.core.PlaceholderResources ph = new fun.commons.tokenmock.core.PlaceholderResources();
         AudioImageHandler audioImage = new AudioImageHandler(ph);
         fun.commons.tokenmock.handler.video.VideoJobHandler video = new fun.commons.tokenmock.handler.video.VideoJobHandler(ph);
-        handler = new OpenAIProtocolHandler(registry, generator, embed, audioImage, video, new InMemoryFileStore(), new ResponseJobHandler(), new BatchJobHandler());
+        handler = new OpenAIProtocolHandler(registry, generator, embed, audioImage, video, new InMemoryFileStore(), new ResponseJobHandler(), new BatchJobHandler(), new ImageJobHandler(ph));
     }
 
     @Test

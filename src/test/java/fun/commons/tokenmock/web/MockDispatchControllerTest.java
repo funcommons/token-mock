@@ -16,6 +16,7 @@ import fun.commons.tokenmock.handler.gemini.GeminiProtocolHandler;
 import fun.commons.tokenmock.handler.ollama.OllamaProtocolHandler;
 import fun.commons.tokenmock.handler.openai.OpenAIProtocolHandler;
 import fun.commons.tokenmock.handler.openai.BatchJobHandler;
+import fun.commons.tokenmock.handler.openai.ImageJobHandler;
 import fun.commons.tokenmock.handler.openai.ResponseJobHandler;
 import fun.commons.tokenmock.registry.InMemoryFileStore;
 import fun.commons.tokenmock.registry.VendorRegistry;
@@ -96,7 +97,7 @@ class MockDispatchControllerTest {
 
         MockDispatchController controller = new MockDispatchController(
                 List.of(
-                        new OpenAIProtocolHandler(registry, generator, embed, audioImage, video, new InMemoryFileStore(), new ResponseJobHandler(), new BatchJobHandler()),
+                        new OpenAIProtocolHandler(registry, generator, embed, audioImage, video, new InMemoryFileStore(), new ResponseJobHandler(), new BatchJobHandler(), new ImageJobHandler(ph)),
                         new AnthropicProtocolHandler(registry, estimator, new fun.commons.tokenmock.core.SseChunker(), new InMemoryFileStore(), new AnthropicBatchJobHandler()),
                         new GeminiProtocolHandler(registry, estimator, embed, new GeminiFileStore()),
                         new AzureProtocolHandler(registry, generator, embed, audioImage, video, new ResponseJobHandler(), new BatchJobHandler()),

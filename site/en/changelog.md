@@ -1,5 +1,16 @@
 # Changelog
 
+## v1.5.0 (2026-09-04)
+
+Aligned with token-gateway 0.8.0+ OpenAI-protocol task surface:
+
+- **Sora-shape video job** — `POST /v1/videos` accepts `{model, prompt, seconds, size, notify_url}`, returns `{object:"video_generation", id:"T<24hex>"}` (same shape as the OneToken `task_no`)
+- **Video /content 307 redirect** — `GET /v1/videos/{id}/content` returns 307 Location to signed proxy URL (mock redirects to `/mock-files/videos/{id}.mp4`; real gateway points at OSS / S3 pre-signed URL); `failed` state → 410 Gone
+- **`failed` carries error envelope** — `{error:{code, message}}` aligned with token-gateway 0.8.0 §3.7
+- **Image background mode** — `POST /v1/images/generations` with `{background:true}` → `image_generation` async job; `GET /v1/images/generations/{id}` returns OpenAI shape `{object, status, output:[{content:[{type:"output_image", image_url:{url:"/v1/resources/{id}/{i}"}}]}]}`
+- **`/v1/images/sync` sync wrapper** — three exits: success `{created, data:[{url}]}` / 502 upstream failure (refunded) / 60s timeout `{status:"PROCESSING", task_no, poll_url}`; `n>1` → 400
+- **`/mock-files/**` static resource** — `placeholder.png` / `videos/{id}.mp4` placeholders backing the 307 redirect, JSON envelope fallback for anything else
+
 ## v1.4.0 (2026-09-01)
 
 Completes five-vendor protocol coverage; token-mock is now the only engineering-grade mock server covering Anthropic + Google Gemini + Azure OpenAI + Bedrock + OpenAI:

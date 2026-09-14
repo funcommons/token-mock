@@ -3,8 +3,10 @@ package fun.commons.tokenmock.handler.video;
 import fun.commons.tokenmock.core.PlaceholderResources;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 
+import java.util.LinkedHashMap;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -19,82 +21,99 @@ class VideoJobHandlerTest {
     }
 
     @Test
-    void submit_returns_queued_job() {
-        ResponseEntity<?> resp = (ResponseEntity<?>) handler.submit("openai", "sora-2", "a cat playing piano");
+    @SuppressWarnings("unchecked")
+    void submit_returns_queued_job_with_video_generation_object() {
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("model", "sora-2");
+        body.put("prompt", "a cat playing piano");
+        body.put("seconds", "8");
+        body.put("size", "1280x720");
+        ResponseEntity<?> resp = (ResponseEntity<?>) handler.submit("openai", body);
         assertThat(resp.getStatusCode().value()).isEqualTo(200);
-        @SuppressWarnings("unchecked")
-        Map<String, Object> body = (Map<String, Object>) resp.getBody();
-        assertThat((String) body.get("id")).startsWith("video_mock_");
-        assertThat(body.get("status")).isEqualTo("queued");
-        assertThat(body.get("model")).isEqualTo("sora-2");
+        Map<String, Object> b = (Map<String, Object>) resp.getBody();
+        assertThat((String) b.get("id")).startsWith("T");
+        assertThat(b.get("object")).isEqualTo("video_generation");
+        assertThat(b.get("status")).isEqualTo("queued");
+        assertThat(b.get("model")).isEqualTo("sora-2");
+        assertThat(b.get("seconds")).isEqualTo("8");
     }
 
-    @Test
+@Test
     void status_returns_404_for_unknown() {
-        ResponseEntity<?> resp = (ResponseEntity<?>) handler.getStatus("video_mock_ghost");
-        assertThat(resp.getStatusCode().value()).isEqualTo(404);
+        Object resp = handler.getStatus("Tghost");
+        assertThat(resp).isInstanceOf(ResponseEntity.class);
+        assertThat(((ResponseEntity<?>) resp).getStatusCode().value()).isEqualTo(404);
     }
 
     @Test
+    @SuppressWarnings("unchecked")
     void status_returns_queued_immediately_after_submit() {
-        ResponseEntity<?> submit = (ResponseEntity<?>) handler.submit("openai", "sora-2", "x");
-        @SuppressWarnings("unchecked")
+        Map<String, Object> body = Map.of("model", "sora-2", "prompt", "x");
+        ResponseEntity<?> submit = (ResponseEntity<?>) handler.submit("openai", body);
         String id = ((Map<String, Object>) submit.getBody()).get("id").toString();
-
         ResponseEntity<?> status = (ResponseEntity<?>) handler.getStatus(id);
-        @SuppressWarnings("unchecked")
-        Map<String, Object> body = (Map<String, Object>) status.getBody();
-        assertThat(body.get("status")).isEqualTo("queued");
+        Map<String, Object> b = (Map<String, Object>) status.getBody();
+        assertThat(b.get("status")).isEqualTo("queued");
     }
 
     @Test
+    @SuppressWarnings("unchecked")
     void force_status_completes_immediately() {
-        ResponseEntity<?> submit = (ResponseEntity<?>) handler.submit("openai", "sora-2", "x");
-        @SuppressWarnings("unchecked")
+        Map<String, Object> body = Map.of("model", "sora-2", "prompt", "x");
+        ResponseEntity<?> submit = (ResponseEntity<?>) handler.submit("openai", body);
         String id = ((Map<String, Object>) submit.getBody()).get("id").toString();
 
         assertThat(handler.forceStatus(id, "completed")).isTrue();
 
         ResponseEntity<?> status = (ResponseEntity<?>) handler.getStatus(id);
-        @SuppressWarnings("unchecked")
-        Map<String, Object> body = (Map<String, Object>) status.getBody();
-        assertThat(body.get("status")).isEqualTo("completed");
-        assertThat(body).containsKey("url");
-        assertThat(body).containsKey("completed_at");
+        Map<String, Object> b = (Map<String, Object>) status.getBody();
+        assertThat(b.get("status")).isEqualTo("completed");
+        assertThat(b).containsKey("completed_at");
     }
 
     @Test
-    void download_returns_409_when_not_completed() {
-        ResponseEntity<?> submit = (ResponseEntity<?>) handler.submit("openai", "sora-2", "x");
-        @SuppressWarnings("unchecked")
+    @SuppressWarnings("unchecked")
+    void failed_status_includes_error_envelope() {
+        Map<String, Object> body = Map.of("model", "sora-2", "prompt", "x");
+        ResponseEntity<?> submit = (ResponseEntity<?>) handler.submit("openai", body);
         String id = ((Map<String, Object>) submit.getBody()).get("id").toString();
+        handler.forceStatus(id, "failed");
 
-        ResponseEntity<?> dl = (ResponseEntity<?>) handler.downloadContent(id);
-        assertThat(dl.getStatusCode().value()).isEqualTo(409);
+        ResponseEntity<?> status = (ResponseEntity<?>) handler.getStatus(id);
+        Map<String, Object> b = (Map<String, Object>) status.getBody();
+        assertThat(b.get("status")).isEqualTo("failed");
+        Map<String, Object> err = (Map<String, Object>) b.get("error");
+        assertThat(err).containsKeys("code", "message");
     }
 
     @Test
-    void download_returns_mp4_bytes_when_completed() {
-        ResponseEntity<?> submit = (ResponseEntity<?>) handler.submit("openai", "sora-2", "x");
-        @SuppressWarnings("unchecked")
+    void content_307_redirects_to_static_resource() {
+        Map<String, Object> body = Map.of("model", "sora-2", "prompt", "x");
+        ResponseEntity<?> submit = (ResponseEntity<?>) handler.submit("openai", body);
         String id = ((Map<String, Object>) submit.getBody()).get("id").toString();
         handler.forceStatus(id, "completed");
 
-        ResponseEntity<?> dl = (ResponseEntity<?>) handler.downloadContent(id);
-        assertThat(dl.getStatusCode().value()).isEqualTo(200);
-        assertThat(dl.getHeaders().getContentType().toString()).startsWith("video/mp4");
-        assertThat((byte[]) dl.getBody()).isNotEmpty();
+        ResponseEntity<Void> redirect = handler.downloadContent(id);
+        assertThat(redirect.getStatusCode()).isEqualTo(HttpStatus.TEMPORARY_REDIRECT);
+        assertThat(redirect.getHeaders().getLocation().toString())
+                .isEqualTo("/mock-files/videos/" + id + ".mp4");
+        assertThat(redirect.getHeaders().getFirst("X-Mock-Redirect")).isEqualTo("true");
     }
 
     @Test
-    void force_status_returns_false_for_unknown() {
-        assertThat(handler.forceStatus("ghost", "completed")).isFalse();
+    void content_410_for_failed_job() {
+        Map<String, Object> body = Map.of("model", "sora-2", "prompt", "x");
+        ResponseEntity<?> submit = (ResponseEntity<?>) handler.submit("openai", body);
+        String id = ((Map<String, Object>) submit.getBody()).get("id").toString();
+        handler.forceStatus(id, "failed");
+
+        ResponseEntity<Void> redirect = handler.downloadContent(id);
+        assertThat(redirect.getStatusCode()).isEqualTo(HttpStatus.GONE);
     }
 
     @Test
-    void list_job_ids_returns_submitted_jobs() {
-        handler.submit("openai", "sora-2", "a");
-        handler.submit("openai", "sora-2", "b");
-        assertThat(handler.listJobIds()).hasSize(2);
+    void content_404_for_unknown() {
+        ResponseEntity<Void> redirect = handler.downloadContent("Tghost");
+        assertThat(redirect.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
     }
 }

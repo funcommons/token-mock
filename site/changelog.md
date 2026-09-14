@@ -1,5 +1,16 @@
 # 更新日志
 
+## v1.5.0 (2026-09-04)
+
+对齐 token-gateway 0.8.0+ OpenAI 协议任务面:
+
+- **Sora 形状 video job** — `POST /v1/videos` 接收 `{model,prompt,seconds,size,notify_url}`,返回 `{object:"video_generation", id:"T<24hex>"}`(与 OneToken 协议 `task_no` 同形状)
+- **Video /content 307 重定向** — `GET /v1/videos/{id}/content` 返回 307 Location 到签名代理 URL(mock 内指向 `/mock-files/videos/{id}.mp4`,真实网关指向 OSS / S3 预签 URL);`failed` 状态返 410 Gone
+- **`failed` 状态携带 error 信封** — `{error:{code,message}}` 复用 token-gateway 0.8.0 §3.7 错误语义
+- **Image background 模式** — `POST /v1/images/generations` 接收 `{background:true}` → `image_generation` 异步 job,`GET /v1/images/generations/{id}` 返回 `{object:"image_generation", status, output:[{content:[{type:"output_image",image_url:{url:"/v1/resources/{id}/{i}"}}]}]}`(OpenAI 官方 background shape)
+- **`/v1/images/sync` 同步生图封装** — 三出口语义:成功 `{created,data:[{url}]}` / 502 上游失败已退款 / 60s 超时降级 `{status:"PROCESSING", task_no, poll_url}`;`n>1` 返 400(token 面单图语义)
+- **`/mock-files/**` 静态资源** — `placeholder.png` / `videos/{id}.mp4` 占位资源(支持 307 跳转目标),`fallback` catch-all 返 JSON 信封
+
 ## v1.4.0 (2026-09-01)
 
 补齐五大厂协议覆盖,token-mock 成为业内唯一完整覆盖 Anthropic + Google Gemini + Azure OpenAI + Bedrock + OpenAI 五大协议的工程级 mock server:

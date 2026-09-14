@@ -49,6 +49,7 @@ public class OpenAIProtocolHandler implements ProtocolHandler {
     private final InMemoryFileStore fileStore;
     private final ResponseJobHandler responseJobHandler;
     private final BatchJobHandler batchJobHandler;
+    private final ImageJobHandler imageJobHandler;
 
     public OpenAIProtocolHandler(VendorRegistry registry, ResponseGenerator generator,
                                   EmbeddingGenerator embeddingGenerator,
@@ -56,7 +57,8 @@ public class OpenAIProtocolHandler implements ProtocolHandler {
                                   fun.commons.tokenmock.handler.video.VideoJobHandler videoJobHandler,
                                   InMemoryFileStore fileStore,
                                   ResponseJobHandler responseJobHandler,
-                                  BatchJobHandler batchJobHandler) {
+                                  BatchJobHandler batchJobHandler,
+                                  ImageJobHandler imageJobHandler) {
         this.registry = registry;
         this.generator = generator;
         this.embeddingGenerator = embeddingGenerator;
@@ -65,6 +67,7 @@ public class OpenAIProtocolHandler implements ProtocolHandler {
         this.fileStore = fileStore;
         this.responseJobHandler = responseJobHandler;
         this.batchJobHandler = batchJobHandler;
+        this.imageJobHandler = imageJobHandler;
     }
 
     @Override
@@ -84,6 +87,9 @@ public class OpenAIProtocolHandler implements ProtocolHandler {
         if (path.startsWith("/v1/videos")) {
             return handleVideo(vendor, path, request);
         }
+        if (path.startsWith("/v1/images/generations/")) {
+            return handleImageGenerationPoll(path, request);
+        }
         if (path.startsWith("/v1/responses")) {
             return handleResponses(path, request);
         }
@@ -100,7 +106,8 @@ public class OpenAIProtocolHandler implements ProtocolHandler {
             case "/v1/audio/transcriptions", "/v1/audio/translations" ->
                     audioImageHandler.handleAudioTranscription(request);
             case "/v1/images/generations", "/v1/images/edits", "/v1/images/variations" ->
-                    audioImageHandler.handleImages(request);
+                    handleImageGenerationCreate(vendor, request);
+            case "/v1/images/sync" -> handleImageSync(vendor, request);
             case "/v1/models" -> handleListModels(vendor);
             default -> throw new IllegalArgumentException("unknown path: " + path);
         };
@@ -284,18 +291,80 @@ public class OpenAIProtocolHandler implements ProtocolHandler {
     private Object handleVideo(VendorConfig vendor, String path, MockRequest request) {
         if (path.equals("/v1/videos")) {
             Map<String, Object> body = asMap(request.getBody());
-            String model = stringOr(body.get("model"), "sora-2");
-            String prompt = stringOr(body.get("prompt"), "(empty)");
-            return videoJobHandler.submit(vendor.getSlug(), model, prompt);
+            return videoJobHandler.submit(vendor.getSlug(), body);
         }
         String[] parts = path.split("/");
-        if (parts.length == 4 && parts[3].startsWith("video_mock_")) {
+        if (parts.length == 4 && (parts[3].startsWith("video_mock_") || parts[3].startsWith("T"))) {
             return videoJobHandler.getStatus(parts[3]);
         }
         if (parts.length == 5 && "content".equals(parts[4])) {
             return videoJobHandler.downloadContent(parts[3]);
         }
         throw new IllegalArgumentException("unknown video path: " + path);
+    }
+
+    /**
+     * token-gateway 0.8.0+: {@code GET /v1/images/generations/{id}} returns the
+     * OpenAI background shape with {@code output[].content[].image_url}.
+     */
+    private Object handleImageGenerationPoll(String path, MockRequest request) {
+        String id = path.substring("/v1/images/generations/".length());
+        return imageJobHandler.get(id)
+                .<Object>map(job -> ResponseEntity.ok(imageJobHandler.toApiResponse(job)))
+                .orElseGet(() -> ResponseEntity.status(404).body(Map.of(
+                        "error", Map.of("code", "image_not_found",
+                                "message", "image job not found: " + id,
+                                "type", "not_found"))));
+    }
+
+    /**
+     * image generations dispatcher:
+     *   - {@code background:true} → async job (image_generation)
+     *   - default → sync wrapper (ThreeExit semantics matching gateway §5)
+     */
+    private Object handleImageGenerationCreate(VendorConfig vendor, MockRequest request) {
+        Map<String, Object> body = asMap(request.getBody());
+        boolean background = Boolean.TRUE.equals(body.get("background"));
+        if (background) {
+            var job = imageJobHandler.submit(vendor.getSlug(), body);
+            return ResponseEntity.ok(imageJobHandler.toApiResponse(job));
+        }
+        // Default = sync wrapper matching /v1/images/sync semantics
+        Map<String, Object> sync = imageJobHandler.syncOrTimeout(vendor.getSlug(), body, 60_000L);
+        if (sync == null) {
+            // upstream failed → 502
+            return ResponseEntity.status(502).body(Map.of(
+                    "error", Map.of("code", "upstream_failed",
+                            "message", "[mock] upstream failed (refunded)",
+                            "type", "upstream_error")));
+        }
+        if ("PROCESSING".equals(sync.get("status"))) {
+            return ResponseEntity.status(202).body(sync);
+        }
+        return ResponseEntity.ok(sync);
+    }
+
+    /** {@code POST /v1/images/sync} — explicit sync wrapper, same semantics. */
+    private Object handleImageSync(VendorConfig vendor, MockRequest request) {
+        Map<String, Object> body = asMap(request.getBody());
+        Integer n = body.get("n") instanceof Number num ? num.intValue() : null;
+        if (n != null && n > 1) {
+            return ResponseEntity.status(400).body(Map.of(
+                    "error", Map.of("code", "invalid_request",
+                            "message", "n>1 is not supported on task surface (single image semantic)",
+                            "type", "invalid_request_error")));
+        }
+        Map<String, Object> sync = imageJobHandler.syncOrTimeout(vendor.getSlug(), body, 60_000L);
+        if (sync == null) {
+            return ResponseEntity.status(502).body(Map.of(
+                    "error", Map.of("code", "upstream_failed",
+                            "message", "[mock] upstream failed (refunded)",
+                            "type", "upstream_error")));
+        }
+        if ("PROCESSING".equals(sync.get("status"))) {
+            return ResponseEntity.status(202).body(sync);
+        }
+        return ResponseEntity.ok(sync);
     }
 
     private Object handleChat(VendorConfig vendor, MockRequest request) {

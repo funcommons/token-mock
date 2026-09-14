@@ -44,7 +44,7 @@ class AudioImageHandlerTest {
 
         TokenEstimator estimator = new TokenEstimator();
         PlaceholderResources ph = new PlaceholderResources();
-        handler = new OpenAIProtocolHandler(registry, new ResponseGenerator(estimator), new EmbeddingGenerator(), new AudioImageHandler(ph), new VideoJobHandler(ph), new InMemoryFileStore(), new ResponseJobHandler(), new BatchJobHandler());
+        handler = new OpenAIProtocolHandler(registry, new ResponseGenerator(estimator), new EmbeddingGenerator(), new AudioImageHandler(ph), new VideoJobHandler(ph), new InMemoryFileStore(), new ResponseJobHandler(), new BatchJobHandler(), new ImageJobHandler(ph));
     }
 
     @Test
@@ -94,38 +94,43 @@ class AudioImageHandlerTest {
     }
 
     @Test
-    void images_generations_returns_url_by_default() {
+    @SuppressWarnings("unchecked")
+    void images_generations_default_returns_sync_wrapper_with_data_url() {
+        // v1.5: default (no background:true) routes through the sync wrapper
+        // matching gateway /v1/images/sync semantics — completed image job returns
+        // {created, data:[{url}]}.
         Map<String, Object> body = new LinkedHashMap<>();
+        body.put("model", "gpt-image-2");
         body.put("prompt", "a cat");
-        body.put("n", 2);
+        body.put("n", 1);
 
         Object resp = handler.handle(MockRequest.of(
                 "openai", "Bearer sk-openai-xxx", "/openai/v1/images/generations", body
         ));
         ResponseEntity<?> re = (ResponseEntity<?>) resp;
-        @SuppressWarnings("unchecked")
         Map<String, Object> b = (Map<String, Object>) re.getBody();
-        @SuppressWarnings("unchecked")
+        assertThat(b).containsKey("created");
         List<Map<String, Object>> data = (List<Map<String, Object>>) b.get("data");
-        assertThat(data).hasSize(2);
-        assertThat(data.get(0)).containsKey("url");
-        assertThat((String) data.get(0).get("revised_prompt")).contains("a cat");
+        assertThat(data).hasSize(1);
+        assertThat((String) data.get(0).get("url")).startsWith("/v1/resources/");
     }
 
     @Test
-    void images_generations_returns_b64_when_format_b64() {
+    @SuppressWarnings("unchecked")
+    void images_generations_background_returns_image_generation_job() {
+        // v1.5: background:true → async image_generation job (T-prefixed id)
         Map<String, Object> body = new LinkedHashMap<>();
-        body.put("prompt", "x");
-        body.put("response_format", "b64_json");
+        body.put("model", "gpt-image-2");
+        body.put("prompt", "a cat");
+        body.put("background", true);
 
         Object resp = handler.handle(MockRequest.of(
                 "openai", "Bearer sk-openai-xxx", "/openai/v1/images/generations", body
         ));
         ResponseEntity<?> re = (ResponseEntity<?>) resp;
-        @SuppressWarnings("unchecked")
         Map<String, Object> b = (Map<String, Object>) re.getBody();
-        @SuppressWarnings("unchecked")
-        List<Map<String, Object>> data = (List<Map<String, Object>>) b.get("data");
-        assertThat(data.get(0)).containsKey("b64_json");
+        assertThat(b.get("object")).isEqualTo("image_generation");
+        assertThat((String) b.get("id")).startsWith("T");
+        assertThat(b.get("status")).isIn("queued", "in_progress", "completed");
     }
 }

@@ -1,10 +1,12 @@
 package fun.commons.tokenmock.handler.video;
 
 import fun.commons.tokenmock.core.PlaceholderResources;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Component;
 
+import java.net.URI;
 import java.time.Instant;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -13,9 +15,15 @@ import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * Async video generation: submit job → poll status → download binary.
+ * Async video generation in OpenAI sora job shape.
  * <p>
- * State machine: queued (0-30s) → in_progress (30-60s) → completed
+ * Matches token-gateway 0.8.0+ {@code /v1/videos} contract:
+ *  - submit body accepts {@code model} / {@code prompt} / {@code seconds} / {@code size} / {@code notify_url}
+ *  - response object: {@code video_generation}
+ *  - id format: T-prefixed (OneToken task_no) — token-gateway's actual id shape
+ *  - status: queued → in_progress → completed / failed
+ *  - {@code /v1/videos/{id}/content} returns 307 to signed proxy URL
+ *    (the mock serves it from {@code /mock-files/videos/{id}.mp4} directly)
  */
 @Component
 public class VideoJobHandler {
@@ -30,12 +38,16 @@ public class VideoJobHandler {
         this.placeholders = placeholders;
     }
 
-    public Object submit(String vendorSlug, String model, String prompt) {
-        String id = "video_mock_" + UUID.randomUUID().toString().replace("-", "").substring(0, 24);
+    public Object submit(String vendorSlug, Map<String, Object> body) {
+        String model = stringOr(body.get("model"), "sora-2");
+        String prompt = stringOr(body.get("prompt"), "(empty)");
+        String seconds = body.get("seconds") == null ? null : String.valueOf(body.get("seconds"));
+        String size = stringOr(body.get("size"), "1280x720");
+        String notifyUrl = stringOr(body.get("notify_url"), null);
+        String id = "T" + UUID.randomUUID().toString().replace("-", "").substring(0, 24).toUpperCase();
         VideoJob job = new VideoJob(
-                id, vendorSlug, model, prompt,
-                "queued", Instant.now().getEpochSecond(), 0,
-                "http://localhost:9999/" + vendorSlug + "/v1/videos/" + id
+                id, vendorSlug, model, prompt, seconds, size, notifyUrl,
+                "queued", Instant.now().getEpochSecond(), 0
         );
         jobs.put(id, job);
         return ResponseEntity.ok(job.toMap());
@@ -45,29 +57,38 @@ public class VideoJobHandler {
         VideoJob job = jobs.get(jobId);
         if (job == null) {
             return ResponseEntity.status(404).body(Map.of(
-                    "error", Map.of("message", "video job not found: " + jobId, "type", "not_found")
+                    "error", Map.of("message", "video job not found: " + jobId,
+                            "type", "not_found", "code", "video_not_found")
             ));
         }
         advanceState(job);
         return ResponseEntity.ok(job.toMap());
     }
 
-    public Object downloadContent(String jobId) {
+    /**
+     * token-gateway 0.8.0+ contract: 307 redirect to signed proxy URL.
+     * <p>The mock returns 307 to {@code /mock-files/videos/{id}.mp4} (served by
+     * {@link fun.commons.tokenmock.handler.staticfiles.StaticResourceController}).
+     * Real OpenAI SDK + curl {@code -L} follow the redirect.
+     */
+    public ResponseEntity<Void> downloadContent(String jobId) {
         VideoJob job = jobs.get(jobId);
         if (job == null) {
-            return ResponseEntity.status(404).body(Map.of(
-                    "error", Map.of("message", "video job not found", "type", "not_found")
-            ));
+            return ResponseEntity.status(404).body(null);
         }
-        if (!"completed".equals(job.status)) {
-            return ResponseEntity.status(409).body(Map.of(
-                    "error", Map.of("message", "job not completed yet, current status: " + job.status,
-                            "type", "not_ready")
-            ));
+        if (!"completed".equals(job.status) && !"in_progress".equals(job.status)) {
+            // failed -> 410 Gone (resource won't be available)
+            if ("failed".equals(job.status)) {
+                return ResponseEntity.status(HttpStatus.GONE).build();
+            }
         }
-        return ResponseEntity.ok()
-                .contentType(MediaType.valueOf("video/mp4"))
-                .body(placeholders.placeholderMp4());
+        // For mock, redirect directly to our own static endpoint.
+        // Real gateway would 307 to a pre-signed OSS / S3 URL.
+        URI redirectUri = URI.create("/mock-files/videos/" + jobId + ".mp4");
+        return ResponseEntity.status(HttpStatus.TEMPORARY_REDIRECT)
+                .location(redirectUri)
+                .header("X-Mock-Redirect", "true")
+                .build();
     }
 
     private void advanceState(VideoJob job) {
@@ -76,7 +97,8 @@ public class VideoJobHandler {
         if ("queued".equals(job.status) && elapsed >= QUEUED_DURATION_SECONDS) {
             job.status = "in_progress";
         }
-        if ("in_progress".equals(job.status) && elapsed >= QUEUED_DURATION_SECONDS + IN_PROGRESS_DURATION_SECONDS) {
+        if ("in_progress".equals(job.status)
+                && elapsed >= QUEUED_DURATION_SECONDS + IN_PROGRESS_DURATION_SECONDS) {
             job.status = "completed";
             job.completedAt = now;
         }
@@ -97,40 +119,51 @@ public class VideoJobHandler {
         return List.copyOf(jobs.keySet());
     }
 
+    private String stringOr(Object v, String fb) {
+        return v == null || String.valueOf(v).isBlank() ? fb : String.valueOf(v);
+    }
+
     public static class VideoJob {
         final String id;
         final String vendorSlug;
         final String model;
         final String prompt;
+        final String seconds;
+        final String size;
+        final String notifyUrl;
         volatile String status;
         final long createdAt;
         volatile long completedAt;
-        final String url;
 
         VideoJob(String id, String vendorSlug, String model, String prompt,
-                 String status, long createdAt, long completedAt, String url) {
+                 String seconds, String size, String notifyUrl,
+                 String status, long createdAt, long completedAt) {
             this.id = id;
             this.vendorSlug = vendorSlug;
             this.model = model;
             this.prompt = prompt;
+            this.seconds = seconds;
+            this.size = size;
+            this.notifyUrl = notifyUrl;
             this.status = status;
             this.createdAt = createdAt;
             this.completedAt = completedAt;
-            this.url = url;
         }
 
         Map<String, Object> toMap() {
             Map<String, Object> m = new LinkedHashMap<>();
             m.put("id", id);
+            m.put("object", "video_generation");
             m.put("status", status);
-            m.put("model", model);
-            m.put("prompt", prompt);
             m.put("created_at", createdAt);
             if (completedAt > 0) m.put("completed_at", completedAt);
-            if ("completed".equals(status)) {
-                m.put("url", url + "/content");
-                m.put("duration_seconds", 5.0);
-                m.put("resolution", "1080p");
+            m.put("model", model);
+            m.put("prompt", prompt);
+            if (seconds != null) m.put("seconds", seconds);
+            m.put("size", size);
+            if (notifyUrl != null) m.put("notify_url", notifyUrl);
+            if ("failed".equals(status)) {
+                m.put("error", Map.of("code", "upstream_error", "message", "[mock] simulated failure"));
             }
             return m;
         }
