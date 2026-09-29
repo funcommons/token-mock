@@ -161,4 +161,45 @@ class OpenAIProtocolHandlerTest {
         assertThat((String) rb.get("id")).startsWith("batch_");
         assertThat(rb.get("status")).isEqualTo("in_progress");
     }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void image_resources_serves_png_after_background_job_completes() {
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("model", "gpt-image-2");
+        body.put("prompt", "a cat");
+        body.put("background", true);
+
+        MockRequest create = new MockRequest(
+                "openai", "Bearer sk-openai-xxx", "/openai/v1/images/generations", "POST", body);
+        Map<String, Object> rb = (Map<String, Object>) ((ResponseEntity<?>) handler.handle(create)).getBody();
+        String id = (String) rb.get("id");
+
+        // Poll like a real consumer until the job completes (~150ms mock delay)
+        long deadline = System.currentTimeMillis() + 2_000;
+        String status = "queued";
+        while (System.currentTimeMillis() < deadline && !"completed".equals(status)) {
+            MockRequest poll = new MockRequest(
+                    "openai", "Bearer sk-openai-xxx", "/openai/v1/images/generations/" + id, null);
+            Map<String, Object> pb = (Map<String, Object>) ((ResponseEntity<?>) handler.handle(poll)).getBody();
+            status = String.valueOf(pb.get("status"));
+        }
+        assertThat(status).isEqualTo("completed");
+
+        MockRequest get = new MockRequest(
+                "openai", "Bearer sk-openai-xxx", "/openai/v1/resources/" + id + "/0", null);
+        ResponseEntity<?> resp = (ResponseEntity<?>) handler.handle(get);
+        assertThat(resp.getStatusCode().value()).isEqualTo(200);
+        assertThat(resp.getHeaders().getContentType()).isEqualTo(org.springframework.http.MediaType.IMAGE_PNG);
+        assertThat((byte[]) resp.getBody()).isNotEmpty();
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void image_resources_unknown_job_returns_404() {
+        MockRequest get = new MockRequest(
+                "openai", "Bearer sk-openai-xxx", "/openai/v1/resources/TUNKNOWN0000000000000000/0", null);
+        ResponseEntity<?> resp = (ResponseEntity<?>) handler.handle(get);
+        assertThat(resp.getStatusCode().value()).isEqualTo(404);
+    }
 }

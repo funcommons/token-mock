@@ -1,5 +1,14 @@
 # 更新日志
 
+## v1.5.1 (2026-09-29)
+
+修复 issue #1 —— image job 产物 URL 只造不接,completed 后按 URL 拉取 400:
+
+- **`GET /v1/resources/{jobId}/{index}` 补 serve 路由** — background image job(`ImageJobHandler`)completed 响应里的 `output[].content[].image_url.url` 与 `/v1/images/sync` 成功出口的 `data[].url` 都指向 `/v1/resources/{id}/{i}`,此前全仓无此路由,消费方按 URL 拉图得到 400 `unknown path`;现在返回占位 png 字节(`image/png`),URL 契约不变
+- **顶级(无 slug 前缀)同路径别名** — 相对 URL 按 RFC 3986 解析到 host 根的消费方(`http://host/v1/resources/...`)与拼接 vendor base 的消费方(`http://host/{slug}/v1/resources/...`)各走一条,与 video `/mock-files/**` 的 slug 无关设计同风格;未知 job / 未完成 / index 越界统一 404
+- 校验语义:仅 `completed` 状态的 job 可取,index 须落在产出范围(`n` 钳位 1..10)内
+- **JVM 基线降至 17**(挂账池 D8)—— mmagix-token 测试 JVM=17 拒载 major 65 class;SSE 帧泵同步改平台线程(`startVirtualThread` 为 21 API),mock 并发量级下语义等价
+
 ## v1.5.0 (2026-09-04)
 
 对齐 token-gateway 0.8.0+ OpenAI 协议任务面:

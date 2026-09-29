@@ -37,6 +37,7 @@ import java.util.Map;
  *   POST /v1/batches                 (returns batch_xxx id,status in_progress)
  *   GET  /v1/batches/{id}
  *   POST /v1/batches/{id}/cancel
+ *   GET  /v1/resources/{jobId}/{index}  (image job artifact bytes, image/png)
  */
 @Component
 public class OpenAIProtocolHandler implements ProtocolHandler {
@@ -89,6 +90,9 @@ public class OpenAIProtocolHandler implements ProtocolHandler {
         }
         if (path.startsWith("/v1/images/generations/")) {
             return handleImageGenerationPoll(path, request);
+        }
+        if (path.startsWith("/v1/resources/")) {
+            return handleImageResource(path);
         }
         if (path.startsWith("/v1/responses")) {
             return handleResponses(path, request);
@@ -315,6 +319,33 @@ public class OpenAIProtocolHandler implements ProtocolHandler {
                         "error", Map.of("code", "image_not_found",
                                 "message", "image job not found: " + id,
                                 "type", "not_found"))));
+    }
+
+    /**
+     * Serves the artifact bytes behind the {@code image_url} emitted by
+     * completed image jobs — {@code /v1/resources/{jobId}/{index}} (issue #1:
+     * URL was minted in responses but no route served it, consumers got 400).
+     */
+    private Object handleImageResource(String path) {
+        // /v1/resources/{jobId}/{index}
+        String[] parts = path.split("/");
+        if (parts.length != 5) {
+            return ResponseEntity.status(404).body(errorBody("not_found",
+                    "unknown resource path: " + path));
+        }
+        int index;
+        try {
+            index = Integer.parseInt(parts[4]);
+        } catch (NumberFormatException e) {
+            return ResponseEntity.status(404).body(errorBody("not_found",
+                    "invalid resource index: " + parts[4]));
+        }
+        return imageJobHandler.resource(parts[3], index)
+                .<Object>map(bytes -> ResponseEntity.ok()
+                        .contentType(MediaType.IMAGE_PNG)
+                        .body(bytes))
+                .orElseGet(() -> ResponseEntity.status(404).body(errorBody(
+                        "image_not_found", "no completed image resource at: " + path)));
     }
 
     /**

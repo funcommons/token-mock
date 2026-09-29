@@ -69,6 +69,24 @@ public class ImageJobHandler {
         return Optional.ofNullable(byId.get(id));
     }
 
+    /**
+     * Bytes behind the resource URL emitted in completed responses
+     * ({@code /v1/resources/{id}/{i}}). Present only when the job exists,
+     * is completed, and the index falls inside the emitted output range
+     * (issue #1: the URL was minted but nothing served it).
+     */
+    public Optional<byte[]> resource(String id, int index) {
+        ImageJob job = byId.get(id);
+        if (job == null || job.status() != Status.COMPLETED) {
+            return Optional.empty();
+        }
+        int n = job.n() == null ? 1 : Math.min(10, Math.max(1, job.n()));
+        if (index < 0 || index >= n) {
+            return Optional.empty();
+        }
+        return Optional.of(placeholders.placeholderPng());
+    }
+
     private void advanceToInProgress(ImageJob job) {
         ImageJob next = new ImageJob(job.id(), job.vendorSlug(), job.model(), job.prompt(),
                 job.size(), job.resolution(), job.n(),

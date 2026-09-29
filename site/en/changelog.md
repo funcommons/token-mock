@@ -1,5 +1,14 @@
 # Changelog
 
+## v1.5.1 (2026-09-29)
+
+Fixes issue #1 — the image-job artifact URL was minted but never served; pulling it after completion returned 400:
+
+- **`GET /v1/resources/{jobId}/{index}` serve route added** — the `output[].content[].image_url.url` in completed background image jobs and the `data[].url` success exit of `/v1/images/sync` both point at `/v1/resources/{id}/{i}`; no route existed, so consumers pulling the artifact got 400 `unknown path`. Now returns the placeholder png bytes (`image/png`); URL contract unchanged
+- **Slug-less top-level alias at the same path** — consumers resolving the relative URL against the host root (RFC 3986 → `http://host/v1/resources/...`) and consumers joining it onto the vendor base (`http://host/{slug}/v1/resources/...`) each get a route, mirroring the slug-independent `/mock-files/**` design used for video; unknown job / not completed / out-of-range index → 404
+- Validation semantics: only `completed` jobs serve bytes, index must fall inside the emitted output range (`n` clamped to 1..10)
+- **JVM baseline lowered to 17** (ledger D8) — mmagix-token's test JVM (17) rejected major-65 classes; SSE frame pumps switched to platform threads (`startVirtualThread` is a 21-only API), semantically equivalent at mock concurrency
+
 ## v1.5.0 (2026-09-04)
 
 Aligned with token-gateway 0.8.0+ OpenAI-protocol task surface:

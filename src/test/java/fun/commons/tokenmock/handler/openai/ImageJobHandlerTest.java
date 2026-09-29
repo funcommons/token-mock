@@ -98,4 +98,34 @@ class ImageJobHandlerTest {
             assertThat(sync).containsKey("data");
         }
     }
+
+    @Test
+    void resource_returns_png_only_after_completion() throws InterruptedException {
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("model", "gpt-image-2");
+        body.put("prompt", "a cat");
+
+        ImageJobHandler.ImageJob job = handler.submit("openai", body);
+        // in_progress right after submit → no bytes yet
+        assertThat(handler.resource(job.id(), 0)).isEmpty();
+        Thread.sleep(400);
+        assertThat(handler.resource(job.id(), 0)).isPresent();
+        assertThat(handler.resource(job.id(), 0).orElseThrow()).isNotEmpty();
+    }
+
+    @Test
+    void resource_empty_for_unknown_id_and_out_of_range_index() throws InterruptedException {
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("model", "gpt-image-2");
+        body.put("prompt", "a cat");
+        body.put("n", 2);
+
+        ImageJobHandler.ImageJob job = handler.submit("openai", body);
+        Thread.sleep(400);
+
+        assertThat(handler.resource("TUNKNOWN0000000000000000", 0)).isEmpty();
+        assertThat(handler.resource(job.id(), 2)).isEmpty();  // n=2 → indexes 0,1
+        assertThat(handler.resource(job.id(), -1)).isEmpty();
+        assertThat(handler.resource(job.id(), 1)).isPresent();
+    }
 }
