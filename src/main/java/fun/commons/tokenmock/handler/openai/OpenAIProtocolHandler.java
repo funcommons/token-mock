@@ -398,7 +398,10 @@ public class OpenAIProtocolHandler implements ProtocolHandler {
     private SseEmitter buildSseStream(String model, List<Map<String, Object>> messages, boolean includeUsage) {
         SseEmitter emitter = new SseEmitter(60_000L);
         List<Map<String, Object>> chunks = generator.chatCompletionStream(model, messages, includeUsage);
-        Thread.startVirtualThread(() -> {
+        // 2026-09-22 挂账池 D8：钉 17 基线（mmagix-token 测试 JVM=17，release 21 class(major 65)
+        // 会被测试 JVM 拒载 UnsupportedClassVersionError）——startVirtualThread 为 21 API，
+        // mock 并发量级下平台线程语义等价（fire-and-forget 帧泵）。
+        new Thread(() -> {
             try {
                 for (Map<String, Object> chunk : chunks) {
                     emitter.send(SseEmitter.event()
@@ -410,7 +413,7 @@ public class OpenAIProtocolHandler implements ProtocolHandler {
             } catch (IOException e) {
                 emitter.completeWithError(e);
             }
-        });
+        }).start();
         return emitter;
     }
 
